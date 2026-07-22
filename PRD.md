@@ -1,14 +1,17 @@
 # PRD — YouTube Shorts Factory SaaS
-**Version:** 1.0.0  
+**Version:** 2.0.0  
 **Date:** 2026-07-22  
 **Status:** Active  
-**Audience:** Engineering, Product, QA
+**Audience:** Engineering, Product, QA  
+**Environment:** cPanel Shared Hosting / Local Server (Laragon)
 
 ---
 
 ## 1. Overview
 
-YouTube Shorts Factory adalah platform SaaS **multi-tenant** yang mengotomasi seluruh pipeline produksi dan distribusi konten YouTube Shorts — mulai dari riset tren, penulisan skrip AI, pemrosesan video, hingga upload terjadwal ke YouTube. Platform ini memanfaatkan rotasi **50 Gemini API key** per-tenant untuk bypass rate limit dan parallelism tinggi.
+YouTube Shorts Factory adalah platform SaaS **multi-tenant** yang mengotomasi seluruh pipeline produksi dan distribusi konten YouTube Shorts — mulai dari riset tren, penulisan skrip AI, pemrosesan video, hingga upload terjadwal ke YouTube dan platform lain. Platform ini memanfaatkan rotasi **Gemini API key per-tenant** (hingga 50 key) untuk bypass rate limit dan parallelism tinggi.
+
+Platform dapat di-deploy di **cPanel shared/VPS hosting** maupun **lokal via Laragon** (Windows). Tidak ada ketergantungan pada Docker atau cloud-native services.
 
 ---
 
@@ -18,20 +21,28 @@ YouTube Shorts Factory adalah platform SaaS **multi-tenant** yang mengotomasi se
 | # | Goal |
 |---|------|
 | G1 | Tenant dapat mendaftar, login, dan mengelola akun secara mandiri |
-| G2 | Tenant dapat mendaftarkan hingga 50 Gemini API key yang berputar otomatis |
+| G2 | Tenant dapat mendaftarkan hingga 50 Gemini API key per akun dengan rotasi otomatis |
 | G3 | Tenant dapat memproses video (crop 9:16, subtitle, hook text, musik) |
 | G4 | Tenant dapat membuat skrip Shorts berbasis niche dengan AI |
 | G5 | Tenant dapat menghubungkan channel YouTube via OAuth dan upload otomatis |
 | G6 | Tenant dapat menjadwalkan upload di jam prime time |
-| G7 | Tenant dapat memantau performa video (views, CTR, likes) di dashboard |
+| G7 | Tenant dapat memantau performa video di dashboard |
 | G8 | Isolasi data antar tenant penuh (tidak ada kebocoran lintas tenant) |
 | G9 | Background worker memproses antrian job secara async |
+| G10 | Text-to-Shorts: generate video dari teks tanpa footage (slide-based + TTS) |
+| G11 | Multi-platform output: 1 video → YouTube Shorts, TikTok, Instagram Reels, Facebook Reels |
+| G12 | Viral Hook Library: database hook template terbukti viral per niche |
+| G13 | Auto A/B Title Testing: upload 2 varian title, monitor CTR, prune otomatis |
+| G14 | Competitor Spy: analisis channel competitor → rekomendasi strategi |
+| G15 | WhatsApp / Telegram Bot: kontrol via chat mobile |
+| G16 | Reseller / White-label Mode: sub-tenant dengan branding custom |
+| G17 | Smart Content Calendar: jadwal berdasarkan pola audience per channel |
+| G18 | Dapat berjalan di cPanel dan Laragon tanpa Docker |
 
-### Non-Goals (v1.0)
-- Billing / payment gateway
-- Mobile app (iOS/Android)
-- Video generation dari teks murni (tanpa footage)
-- Multi-bahasa UI (hanya Bahasa Indonesia & English)
+### Non-Goals (v1.x)
+- Billing / payment gateway (direncanakan fase 5)
+- Mobile app native (iOS/Android)
+- Streaming live ke YouTube
 
 ---
 
@@ -47,10 +58,14 @@ YouTube Shorts Factory adalah platform SaaS **multi-tenant** yang mengotomasi se
 - Butuh multi-channel management dalam 1 akun
 - Prioritas: bulk processing, scheduling, analytics
 
-### 3.3 Developer / Power User
+### 3.3 Reseller / White-label Partner
+- Beli akses platform, jual ulang ke klien mereka dengan brand sendiri
+- Butuh sub-tenant management + custom domain + logo
+
+### 3.4 Developer / Power User
 - Akses via API langsung
 - Butuh dokumentasi endpoint yang jelas
-- Mau integrasi dengan tools eksternal (n8n, Zapier)
+- Mau integrasi dengan tools eksternal (n8n, Zapier, Make)
 
 ---
 
@@ -58,46 +73,46 @@ YouTube Shorts Factory adalah platform SaaS **multi-tenant** yang mengotomasi se
 
 | Layer | Teknologi |
 |-------|-----------|
-| **Backend** | Python 3.13, FastAPI, Uvicorn |
-| **Database** | SQLite (dev) / PostgreSQL (prod) via SQLAlchemy |
+| **Backend** | Python 3.11+, FastAPI, Uvicorn (via Passenger WSGI di cPanel) |
+| **Database** | SQLite (dev/Laragon) / MySQL (cPanel prod) via SQLAlchemy |
 | **Auth** | JWT (python-jose), bcrypt |
-| **AI** | Google Gemini API (`gemini-2.0-flash`, `gemini-1.5-flash`) |
-| **Video** | FFmpeg (system), MoviePy |
+| **AI** | Google Gemini API (`gemini-2.0-flash`, `gemini-1.5-flash`, Gemini TTS) |
+| **Video** | FFmpeg (binary), MoviePy |
 | **Download** | yt-dlp |
-| **Scheduler** | APScheduler (BackgroundScheduler) |
-| **Frontend** | Vanilla HTML/CSS/JS SPA (served dari FastAPI) |
+| **Scheduler** | APScheduler (BackgroundScheduler) / cPanel Cron Jobs |
+| **Bot** | python-telegram-bot, Twilio WhatsApp API |
+| **Frontend** | Vanilla HTML/CSS/JS SPA (served dari FastAPI static) |
 | **Storage** | Filesystem lokal `storage/{tenant_id}/` |
-| **Queue** | In-memory job queue + DB status tracking |
+| **Deployment** | cPanel Passenger WSGI / Laragon (PHP+Python side-by-side) |
 
 ---
 
 ## 5. Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    FRONTEND (SPA)                        │
-│   Dashboard · Jobs · Channels · Keys · Settings         │
-└───────────────────────┬─────────────────────────────────┘
-                        │ REST API (JSON)
-┌───────────────────────▼─────────────────────────────────┐
-│                  FastAPI Backend                         │
-│                                                          │
-│  /api/auth/*      Auth (register, login, me)            │
-│  /api/keys/*      Gemini key CRUD                       │
-│  /api/channels/*  YouTube channel management            │
-│  /api/jobs/*      Video job CRUD + trigger              │
-│  /api/trends/*    Trend scouting                        │
-│  /api/analytics/* YouTube analytics                     │
-│  /api/admin/*     Admin (super user only)               │
-└──┬──────────────┬──────────────┬──────────────┬─────────┘
-   │              │              │              │
-   ▼              ▼              ▼              ▼
-GeminiPool   VideoProcessor  YouTubeUploader  Scheduler
-(per-tenant  (FFmpeg/MoviePy) (OAuth v3)    (APScheduler)
- key rotation)
-   │
-   ▼
-TenantKeyPool[tenant_id] → round-robin rotation
+┌──────────────────────────────────────────────────────────────────┐
+│                      FRONTEND (SPA)                              │
+│  Dashboard · Jobs · Channels · Keys · Trends · Bot · Reseller   │
+└──────────────────────────┬───────────────────────────────────────┘
+                           │ REST API (JSON)
+┌──────────────────────────▼───────────────────────────────────────┐
+│                      FastAPI Backend                             │
+│                                                                  │
+│  /api/auth/*        Auth (register, login, me)                  │
+│  /api/keys/*        Gemini key CRUD                             │
+│  /api/channels/*    YouTube channel management                  │
+│  /api/jobs/*        Video job CRUD + trigger                    │
+│  /api/trends/*      Trend scouting + script gen                 │
+│  /api/analytics/*   YouTube analytics                           │
+│  /api/hooks/*       Viral hook library                          │
+│  /api/bot/*         Telegram/WhatsApp webhook                   │
+│  /api/reseller/*    Sub-tenant management                       │
+│  /api/admin/*       Super admin                                 │
+└──┬──────┬──────┬──────┬──────┬──────┬──────┬────────────────────┘
+   │      │      │      │      │      │      │
+   ▼      ▼      ▼      ▼      ▼      ▼      ▼
+Gemini  Video  Script  YT    Sched  Bot   Reseller
+Pool   Proc   Gen    Upload  uler  Notif  Manager
 ```
 
 ---
@@ -107,13 +122,21 @@ TenantKeyPool[tenant_id] → round-robin rotation
 ### 6.1 Tenant
 ```
 tenants
-├── id              UUID PK
-├── email           String UNIQUE NOT NULL
-├── hashed_password String NOT NULL
-├── name            String NOT NULL
-├── plan            Enum(free|pro|enterprise) DEFAULT free
-├── is_active       Boolean DEFAULT true
-└── created_at      DateTime
+├── id                UUID PK
+├── email             String UNIQUE NOT NULL
+├── hashed_password   String NOT NULL
+├── name              String NOT NULL
+├── plan              Enum(free|pro|enterprise) DEFAULT free
+├── is_active         Boolean DEFAULT true
+├── is_reseller       Boolean DEFAULT false
+├── parent_tenant_id  FK → tenants.id nullable  (untuk sub-tenant)
+├── brand_name        String nullable            (white-label)
+├── brand_logo_url    String nullable
+├── brand_color       String nullable            (#hex)
+├── telegram_chat_id  String nullable
+├── whatsapp_number   String nullable
+├── bot_active        Boolean DEFAULT false
+└── created_at        DateTime
 ```
 
 ### 6.2 GeminiKey
@@ -122,7 +145,7 @@ gemini_keys
 ├── id           UUID PK
 ├── tenant_id    FK → tenants.id
 ├── api_key      String NOT NULL
-├── label        String (deskripsi opsional)
+├── label        String
 ├── is_active    Boolean DEFAULT true
 ├── usage_count  Integer DEFAULT 0
 ├── last_used_at DateTime nullable
@@ -132,42 +155,90 @@ gemini_keys
 ### 6.3 Channel
 ```
 channels
-├── id                   UUID PK
-├── tenant_id            FK → tenants.id
-├── channel_name         String NOT NULL
-├── niche                String NOT NULL  [motivasi|edukasi|humor|fakta|tutorial|lifestyle|finance|kesehatan|teknologi|lainnya]
-├── youtube_credentials  JSON nullable    {access_token, refresh_token, expiry}
-├── is_active            Boolean DEFAULT true
-└── created_at           DateTime
+├── id                    UUID PK
+├── tenant_id             FK → tenants.id
+├── channel_name          String NOT NULL
+├── niche                 String NOT NULL
+├── youtube_credentials   JSON nullable
+├── youtube_channel_id    String nullable
+├── subscriber_count      Integer DEFAULT 0
+├── best_upload_hours     JSON nullable   [7, 12, 19]  ← dari analytics
+├── is_active             Boolean DEFAULT true
+└── created_at            DateTime
 ```
 
 ### 6.4 VideoJob
 ```
 video_jobs
-├── id                UUID PK
-├── tenant_id         FK → tenants.id
-├── channel_id        FK → channels.id nullable
-├── source_type       Enum(upload|url|ai_generate)
-├── source_url        String nullable
-├── source_filename   String nullable
-├── niche             String nullable
-├── title             String nullable
-├── description       Text nullable
-├── tags              JSON  []
-├── add_subtitles     Boolean DEFAULT true
-├── add_music         Boolean DEFAULT false
-├── hook_text         String nullable
-├── output_filename   String nullable
-├── script            Text nullable
-├── thumbnail_filename String nullable
-├── status            Enum(pending|processing|done|failed|scheduled|uploaded)
-├── error_message     Text nullable
-├── progress          Float 0.0–100.0
-├── scheduled_at      DateTime nullable
-├── uploaded_at       DateTime nullable
-├── youtube_video_id  String nullable
-├── created_at        DateTime
-└── updated_at        DateTime
+├── id                  UUID PK
+├── tenant_id           FK → tenants.id
+├── channel_id          FK → channels.id nullable
+├── source_type         Enum(upload|url|ai_generate|text_to_shorts)
+├── source_url          String nullable
+├── source_filename     String nullable
+├── niche               String nullable
+├── title               String nullable
+├── title_variant_b     String nullable       ← A/B testing
+├── description         Text nullable
+├── tags                JSON []
+├── add_subtitles       Boolean DEFAULT true
+├── add_music           Boolean DEFAULT false
+├── hook_text           String nullable
+├── hook_library_id     FK → hook_library.id nullable
+├── output_filename     String nullable
+├── script              Text nullable
+├── thumbnail_filename  String nullable
+├── platforms           JSON ["youtube","tiktok","instagram","facebook"]
+├── ab_test_active      Boolean DEFAULT false
+├── ab_winner           String nullable       ← "a" | "b" | null
+├── status              Enum(pending|processing|done|failed|scheduled|uploaded)
+├── error_message       Text nullable
+├── progress            Float 0.0–100.0
+├── scheduled_at        DateTime nullable
+├── uploaded_at         DateTime nullable
+├── youtube_video_id    String nullable
+├── tiktok_video_id     String nullable
+├── instagram_media_id  String nullable
+├── created_at          DateTime
+└── updated_at          DateTime
+```
+
+### 6.5 HookLibrary
+```
+hook_library
+├── id          UUID PK
+├── tenant_id   FK → tenants.id nullable  (null = global/shared)
+├── niche       String NOT NULL
+├── hook_text   Text NOT NULL
+├── avg_ctr     Float nullable
+├── use_count   Integer DEFAULT 0
+├── is_approved Boolean DEFAULT false      (hanya global; tenant punya selalu true)
+└── created_at  DateTime
+```
+
+### 6.6 AbTestResult
+```
+ab_test_results
+├── id              UUID PK
+├── job_id          FK → video_jobs.id
+├── variant         Enum(a|b)
+├── youtube_video_id String
+├── views_48h       Integer DEFAULT 0
+├── ctr_48h         Float nullable
+├── checked_at      DateTime nullable
+└── created_at      DateTime
+```
+
+### 6.7 BotSession
+```
+bot_sessions
+├── id          UUID PK
+├── tenant_id   FK → tenants.id
+├── platform    Enum(telegram|whatsapp)
+├── chat_id     String NOT NULL
+├── state       String nullable         ← FSM state (awaiting_url, etc.)
+├── context     JSON {}                 ← temporary data
+└── updated_at  DateTime
 ```
 
 ---
@@ -179,19 +250,11 @@ video_jobs
 #### POST /api/auth/register
 **Body:**
 ```json
-{
-  "email": "user@example.com",
-  "password": "min8chars",
-  "name": "Creator Name"
-}
+{ "email": "user@example.com", "password": "min8chars", "name": "Creator Name" }
 ```
 **Response 201:**
 ```json
-{
-  "access_token": "eyJ...",
-  "token_type": "bearer",
-  "tenant": { "id": "...", "email": "...", "name": "...", "plan": "free" }
-}
+{ "access_token": "eyJ...", "token_type": "bearer", "tenant": { "id": "...", "email": "...", "name": "...", "plan": "free" } }
 ```
 **Errors:** 409 email sudah terdaftar, 422 validasi
 
@@ -205,13 +268,7 @@ video_jobs
 ---
 
 #### GET /api/auth/me
-**Header:** `Authorization: Bearer <token>`  
-**Response 200:**
-```json
-{
-  "id": "...", "email": "...", "name": "...", "plan": "free", "created_at": "..."
-}
-```
+**Response 200:** `{ "id", "email", "name", "plan", "is_reseller", "brand_name", "created_at" }`
 
 ---
 
@@ -220,312 +277,254 @@ video_jobs
 #### GET /api/keys
 **Response 200:**
 ```json
-{
-  "keys": [
-    { "id": "...", "label": "Key utama", "api_key": "AIza***masked***", "is_active": true, "usage_count": 42, "last_used_at": "..." }
-  ],
-  "total": 1,
-  "pool_size": 1
-}
+{ "keys": [{ "id", "label", "api_key": "AIza***masked***", "is_active", "usage_count", "last_used_at" }], "total": 1, "pool_size": 1 }
 ```
-> api_key selalu di-mask: tampilkan 8 karakter pertama + `***masked***`
-
----
 
 #### POST /api/keys
-**Body:**
-```json
-{ "api_key": "AIzaSy...", "label": "Key produksi" }
-```
-**Response 201:** `{ "id": "...", "label": "...", "api_key": "AIzaSy***masked***", "is_active": true }`  
-**Errors:** 400 jika key duplikat, 422 validasi
+**Body:** `{ "api_key": "AIzaSy...", "label": "Key produksi" }`  
+**Response 201** | **Errors:** 400 duplikat
 
----
+#### DELETE /api/keys/{key_id} → 204
 
-#### DELETE /api/keys/{key_id}
-**Response 204:** No Content  
-**Errors:** 404 key tidak ditemukan
-
----
-
-#### POST /api/keys/{key_id}/toggle
-**Response 200:** `{ "id": "...", "is_active": false }`
-
----
+#### POST /api/keys/{key_id}/toggle → 200 `{ "is_active": false }`
 
 #### POST /api/keys/test
 **Body:** `{ "api_key": "AIzaSy..." }`  
-**Response 200:** `{ "valid": true, "model": "gemini-2.0-flash" }`  
-**Response 200:** `{ "valid": false, "error": "API key tidak valid" }`
+**Response 200:** `{ "valid": true, "model": "gemini-2.0-flash" }`
 
 ---
 
 ### 7.3 Channels
 
-#### GET /api/channels
-**Response 200:**
-```json
-{
-  "channels": [
-    { "id": "...", "channel_name": "Motivasi Harian", "niche": "motivasi", "is_active": true, "has_youtube_auth": false }
-  ]
-}
-```
-
----
-
-#### POST /api/channels
-**Body:**
-```json
-{ "channel_name": "Motivasi Harian", "niche": "motivasi" }
-```
-**Response 201:** `{ "id": "...", "channel_name": "...", "niche": "...", "is_active": true }`
-
----
-
-#### DELETE /api/channels/{channel_id}
-**Response 204**
-
----
-
-#### GET /api/channels/{channel_id}/oauth-url
-**Response 200:** `{ "auth_url": "https://accounts.google.com/o/oauth2/..." }`  
-> Membuat URL Google OAuth untuk consent screen YouTube
-
----
-
-#### POST /api/channels/{channel_id}/oauth-callback
-**Body:** `{ "code": "4/0A..." }`  
-**Response 200:** `{ "success": true, "channel_name": "My YT Channel" }`
+#### GET /api/channels → list channels tenant
+#### POST /api/channels → `{ "channel_name", "niche" }` → 201
+#### DELETE /api/channels/{id} → 204
+#### GET /api/channels/{id}/oauth-url → `{ "auth_url": "https://accounts.google.com/..." }`
+#### POST /api/channels/{id}/oauth-callback → `{ "code": "..." }` → `{ "success": true }`
+#### GET /api/channels/{id}/best-hours → `{ "hours": [7, 12, 19], "analyzed_at": "..." }`
 
 ---
 
 ### 7.4 Video Jobs
 
 #### GET /api/jobs
-**Query params:** `status`, `channel_id`, `page` (default 1), `limit` (default 20)  
-**Response 200:**
-```json
-{
-  "jobs": [...],
-  "total": 100,
-  "page": 1,
-  "limit": 20
-}
-```
-
----
+**Query:** `status`, `channel_id`, `page`, `limit`
 
 #### POST /api/jobs
-**Content-Type:** `multipart/form-data` ATAU `application/json`
+**Content-Type:** `multipart/form-data` atau `application/json`
 
-**Skenario 1 — Upload file:**
+**Skenario 1 — Upload:**
 ```
-source_type=upload
-file=<binary>
-niche=motivasi
-add_subtitles=true
-hook_text=Fakta mengejutkan!
-channel_id=<uuid>
-scheduled_at=2026-07-23T08:00:00Z   (opsional)
+source_type=upload, file=<binary>, niche, add_subtitles, hook_text, platforms=["youtube","tiktok"]
 ```
 
-**Skenario 2 — URL (YouTube/TikTok/dll):**
+**Skenario 2 — URL:**
 ```json
-{
-  "source_type": "url",
-  "source_url": "https://youtube.com/watch?v=xxx",
-  "niche": "edukasi",
-  "add_subtitles": true,
-  "channel_id": "..."
-}
+{ "source_type": "url", "source_url": "https://youtube.com/...", "niche": "edukasi", "platforms": ["youtube","instagram"] }
 ```
 
-**Skenario 3 — AI Generate (tanpa footage):**
+**Skenario 3 — AI Generate (slide-based):**
 ```json
-{
-  "source_type": "ai_generate",
-  "niche": "fakta",
-  "hook_text": "5 Fakta Mengejutkan Tentang Otak",
-  "add_subtitles": true
-}
+{ "source_type": "text_to_shorts", "niche": "fakta", "topic": "5 Fakta Otak Manusia", "duration_seconds": 45, "add_tts": true }
 ```
 
-**Response 201:**
-```json
-{ "job_id": "...", "status": "pending", "message": "Job diterima, sedang diproses" }
-```
+**Response 201:** `{ "job_id", "status": "pending" }`
 
----
-
-#### GET /api/jobs/{job_id}
-**Response 200:**
-```json
-{
-  "id": "...",
-  "status": "processing",
-  "progress": 45.0,
-  "title": "...",
-  "script": "...",
-  "output_filename": "...",
-  "youtube_video_id": null,
-  "error_message": null,
-  "created_at": "..."
-}
-```
-
----
-
-#### DELETE /api/jobs/{job_id}
-**Response 204**
-
----
-
-#### POST /api/jobs/{job_id}/upload-now
-> Upload segera ke YouTube (tanpa menunggu jadwal)  
-**Response 200:** `{ "success": true, "youtube_video_id": "abc123" }`
-
----
-
-#### GET /api/jobs/{job_id}/download
-> Download file output video  
-**Response:** `StreamingResponse` dengan header `Content-Disposition: attachment`
+#### GET /api/jobs/{id} → detail + progress
+#### DELETE /api/jobs/{id} → 204
+#### POST /api/jobs/{id}/upload-now → `{ "success": true, "youtube_video_id": "..." }`
+#### GET /api/jobs/{id}/download → StreamingResponse
+#### POST /api/jobs/{id}/ab-test → aktifkan A/B testing dengan title_variant_b
 
 ---
 
 ### 7.5 Trends
 
-#### GET /api/trends
-**Query params:** `niche` (required), `limit` (default 10)  
-**Response 200:**
+#### GET /api/trends?niche=motivasi&limit=10
+**Response:**
 ```json
-{
-  "niche": "motivasi",
-  "trends": [
-    { "topic": "Kebiasaan Pagi Orang Sukses", "score": 95, "suggested_hook": "Jam 5 pagi orang sukses sudah..." }
-  ]
-}
+{ "niche": "motivasi", "trends": [{ "topic": "...", "score": 95, "suggested_hook": "..." }] }
 ```
-
----
 
 #### POST /api/trends/generate-script
-**Body:**
+**Body:** `{ "topic", "niche", "duration_seconds" }`  
+**Response:**
 ```json
-{ "topic": "Kebiasaan Pagi Orang Sukses", "niche": "motivasi", "duration_seconds": 45 }
+{ "script", "title", "title_variant_b", "description", "tags", "hook_options": ["...", "...", "..."] }
 ```
-**Response 200:**
+
+---
+
+### 7.6 Hook Library
+
+#### GET /api/hooks?niche=motivasi&limit=20
+**Response:** `{ "hooks": [{ "id", "hook_text", "avg_ctr", "use_count" }] }`
+
+#### POST /api/hooks → submit hook custom tenant → `{ "id", "hook_text", "niche" }`
+#### DELETE /api/hooks/{id} → 204 (hanya hook milik tenant)
+#### GET /api/hooks/best?niche=motivasi → top 5 hook dengan CTR tertinggi
+
+---
+
+### 7.7 Analytics
+
+#### GET /api/analytics/{channel_id}?days=30
 ```json
 {
-  "script": "Hook: Jam 5 pagi orang sukses sudah...\n\nIsi: ...\n\nCTA: Follow untuk tips sukses lainnya!",
-  "title": "5 Kebiasaan Pagi yang Mengubah Hidupku",
-  "description": "...",
-  "tags": ["motivasi", "sukses", "kebiasaan"]
+  "summary": { "total_views", "total_videos", "avg_ctr", "best_upload_hour" },
+  "videos": [{ "youtube_video_id", "title", "views", "likes", "ctr", "uploaded_at" }],
+  "ab_tests": [{ "job_id", "variant_a_ctr", "variant_b_ctr", "winner" }]
 }
 ```
 
 ---
 
-### 7.6 Analytics
+### 7.8 Competitor Spy
 
-#### GET /api/analytics/{channel_id}
-**Query params:** `days` (default 30)  
-**Response 200:**
+#### POST /api/spy/analyze
+**Body:** `{ "channel_url": "https://youtube.com/@channel" }`  
+**Response:**
 ```json
 {
-  "channel_id": "...",
-  "period_days": 30,
-  "summary": { "total_views": 150000, "total_videos": 45, "avg_ctr": 8.2 },
-  "videos": [
-    { "youtube_video_id": "...", "title": "...", "views": 25000, "likes": 1200, "ctr": 9.5 }
-  ]
+  "channel_name": "...",
+  "avg_views": 50000,
+  "posting_frequency": "2x/hari",
+  "top_niches": ["motivasi", "fakta"],
+  "common_hooks": ["Hook 1", "Hook 2"],
+  "best_posting_hours": [7, 19],
+  "recommendations": ["Posting 2x sehari di jam 7 dan 19", "Gunakan hook pertanyaan lebih sering"]
 }
 ```
+
+#### GET /api/spy/history → daftar analisis competitor tersimpan
+
+---
+
+### 7.9 Bot (Telegram & WhatsApp)
+
+#### POST /api/bot/telegram/webhook → Telegram webhook handler
+#### POST /api/bot/whatsapp/webhook → WhatsApp (Twilio) webhook handler
+#### POST /api/bot/connect/telegram → `{ "bot_token": "..." }` → setup webhook
+#### POST /api/bot/connect/whatsapp → `{ "account_sid", "auth_token", "from_number" }` → setup
+#### DELETE /api/bot/disconnect/{platform} → 204
+
+**Bot Commands:**
+```
+/start          → welcome + panduan
+/status         → ringkasan akun (jobs, keys, channels)
+/newjob [url]   → buat job baru dari URL
+/jobs           → daftar 5 job terakhir
+/stats          → statistik hari ini
+/trends [niche] → topik trending
+/help           → bantuan
+```
+
+---
+
+### 7.10 Reseller / White-label
+
+#### GET /api/reseller/sub-tenants → daftar sub-tenant
+#### POST /api/reseller/sub-tenants → buat sub-tenant
+```json
+{ "email", "password", "name", "plan": "free" }
+```
+#### DELETE /api/reseller/sub-tenants/{id} → 204
+#### PUT /api/reseller/branding → update brand reseller
+```json
+{ "brand_name": "MyShorts.id", "brand_logo_url": "...", "brand_color": "#FF6B6B" }
+```
+#### GET /api/reseller/stats → total sub-tenant, total jobs, revenue estimasi
 
 ---
 
 ## 8. Module Specifications
 
 ### 8.1 GeminiPool (backend/core/gemini_pool.py)
-
-**Prinsip:**
-- Setiap tenant memiliki `TenantKeyPool` yang **terisolasi**
-- Rotasi round-robin thread-safe menggunakan `threading.Lock`
-- `pool_manager` adalah singleton global
-- Saat key DB berubah (add/remove/toggle), pool di-resync via `load_tenant_keys_from_db()`
-
-**TenantKeyPool methods:**
-- `next_key()` → str | None (thread-safe)
-- `add_key(key)` 
-- `remove_key(key)`
-- `count` property
-
-**PoolManager methods:**
-- `get_pool(tenant_id)` → TenantKeyPool | None
-- `set_pool(tenant_id, keys)` → TenantKeyPool
-- `add_key(tenant_id, key)`
-- `remove_key(tenant_id, key)`
-- `next_key(tenant_id)` → str | None
-- `delete_tenant_pool(tenant_id)`
-
-**Helper:**
-- `get_genai_client(tenant_id)` → configured `google.generativeai` module
-- `load_tenant_keys_from_db(db, tenant_id)` → syncs DB keys into pool
+- Per-tenant `TenantKeyPool` terisolasi
+- Round-robin thread-safe dengan `threading.Lock`
+- Singleton `pool_manager` global
+- Resync dari DB setiap kali key berubah
 
 ---
 
-### 8.2 VideoProcessor (backend/modules/video_processor/)
+### 8.2 VideoProcessor (backend/modules/video_processor/processor.py)
 
-**File:** `processor.py`
+**Pipeline:**
+1. Download/copy sumber
+2. Probe metadata (ffprobe)
+3. Crop → 9:16 (1080x1920) via FFmpeg
+4. Subtitle via Gemini Vision → burn SRT
+5. Hook text overlay (FFmpeg drawtext, 0–3 detik)
+6. Background music (volume duck 15%)
+7. Export ke format per-platform (rasio, resolusi, durasi max):
+   - YouTube Shorts: 1080x1920, max 60s
+   - TikTok: 1080x1920, max 60s (metadata berbeda)
+   - Instagram Reels: 1080x1920, max 90s
+   - Facebook Reels: 1080x1920, max 60s
+8. Thumbnail extraction + Gemini caption
 
-**Pipeline per job:**
-1. **Download/copy** — jika `source_url`, pakai `yt-dlp`; jika `upload`, file sudah ada di `storage/{tid}/uploads/`
-2. **Probe** — baca metadata (durasi, resolusi, fps) via `ffprobe`
-3. **Crop 9:16** — FFmpeg filter: `crop=ih*9/16:ih` + scale ke `1080x1920`
-4. **Subtitles** — kirim frame ke Gemini Vision → transkripsi → burn SRT via FFmpeg `subtitles=` filter (teks besar, bold, tengah layar)
-5. **Hook Overlay** — jika `hook_text`, tambah teks animated di 0–3 detik (FFmpeg `drawtext`)
-6. **Background Music** — jika `add_music`, mix audio dari `storage/shared/music/` (royalty-free)
-7. **Output** — simpan ke `storage/{tid}/output/{job_id}.mp4`
-8. **Thumbnail** — ekstrak frame terbaik, kirim ke Gemini untuk pilih + caption
-
-**Progress callback:**
-- Update `job.progress` di DB setiap langkah (0→20→40→60→80→100)
-
-**FFmpeg command patterns:**
+**FFmpeg patterns:**
 ```bash
-# Step 3 — Crop & scale
-ffmpeg -i input.mp4 -vf "crop=ih*9/16:ih,scale=1080:1920" -c:a copy output_cropped.mp4
+# Crop & scale 9:16
+ffmpeg -i input.mp4 -vf "crop=ih*9/16:ih,scale=1080:1920" -c:a copy cropped.mp4
 
-# Step 5 — Hook text overlay
-ffmpeg -i cropped.mp4 -vf "drawtext=text='HOOK TEXT':fontsize=72:fontcolor=white:x=(w-text_w)/2:y=h*0.15:enable='between(t,0,3)':borderw=3:bordercolor=black" output_hook.mp4
+# Hook text overlay
+ffmpeg -i cropped.mp4 -vf "drawtext=text='%{hook}':fontsize=72:fontcolor=white:x=(w-text_w)/2:y=h*0.15:enable='between(t,0,3)':borderw=3:bordercolor=black" hooked.mp4
 
-# Step 4 — Burn subtitles
-ffmpeg -i hook.mp4 -vf "subtitles=subs.srt:force_style='FontSize=28,Bold=1,Alignment=2'" output_final.mp4
+# Burn subtitles
+ffmpeg -i hooked.mp4 -vf "subtitles=subs.srt:force_style='FontSize=28,Bold=1,Alignment=2'" subbed.mp4
 
-# Step 6 — Mix music (volume ducking)
-ffmpeg -i video.mp4 -i music.mp3 -filter_complex "[1:a]volume=0.15[music];[0:a][music]amix=inputs=2:duration=first" final.mp4
+# Mix background music
+ffmpeg -i subbed.mp4 -i music.mp3 -filter_complex "[1:a]volume=0.15[m];[0:a][m]amix=inputs=2:duration=first" final.mp4
 ```
 
 ---
 
-### 8.3 ScriptGenerator (backend/modules/script_generator/)
+### 8.3 Text-to-Shorts Generator (backend/modules/text_to_shorts/generator.py)
 
-**File:** `generator.py`
+**Pipeline:**
+1. Gemini generate struktur slide (5–8 slide, per slide: heading + body text)
+2. Pilih template visual (gradient background per niche, font overlay)
+3. Generate gambar per slide via Pillow (atau Gemini Imagen jika tersedia)
+4. TTS narasi per slide via Gemini TTS / gTTS fallback
+5. Gabung gambar + audio per slide → video clip per slide via MoviePy
+6. Concat semua clip → video final
+7. Tambah background music (volume 10%)
 
-**Prompt template per niche:**
+**Slide structure (Gemini output):**
+```json
+{
+  "slides": [
+    { "type": "hook", "heading": "5 Fakta Mengejutkan", "body": "yang jarang diketahui orang" },
+    { "type": "fact", "heading": "Fakta #1", "body": "Otak manusia hanya pakai 10% energinya..." },
+    ...
+    { "type": "cta", "heading": "Follow untuk tips lainnya!", "body": "" }
+  ],
+  "background_style": "dark_gradient",
+  "accent_color": "#FF6B6B"
+}
 ```
-Kamu adalah scriptwriter ahli YouTube Shorts niche {niche}.
-Buat skrip video berdurasi {duration} detik dengan struktur:
-1. HOOK (0-3 detik): kalimat pembuka yang memancing rasa ingin tahu
-2. ISI (4-{mid} detik): {point_count} poin utama, singkat dan padat
-3. CTA (akhir): ajak subscribe/like/follow
 
-Topik: {topic}
-Gaya bahasa: santai, energik, mudah dipahami
-Output JSON: {"hook": "...", "body": ["poin1", "poin2"], "cta": "...", "full_script": "...", "title": "...", "description": "...", "tags": [...]}
+---
+
+### 8.4 ScriptGenerator (backend/modules/script_generator/generator.py)
+
+**Output per niche:**
+```json
+{
+  "hook": "...",
+  "body": ["poin 1", "poin 2", "poin 3"],
+  "cta": "...",
+  "full_script": "...",
+  "title": "...",
+  "title_variant_b": "...",
+  "description": "...",
+  "tags": ["..."],
+  "hook_options": ["hook A", "hook B", "hook C"]
+}
 ```
 
-**Niche-specific behavior:**
+**Niche config:**
 | Niche | Model | Tone | Duration |
 |-------|-------|------|----------|
 | motivasi | gemini-2.0-flash | inspiratif | 45–60s |
@@ -540,139 +539,143 @@ Output JSON: {"hook": "...", "body": ["poin1", "poin2"], "cta": "...", "full_scr
 
 ---
 
-### 8.4 TrendScout (backend/modules/trend_scout/)
-
-**File:** `scout.py`
-
-**Method:** `get_trends(tenant_id, niche, limit) → list[TrendItem]`
-
-**Implementation:**
-1. Minta Gemini untuk generate daftar topik trending berdasarkan niche (dengan konteks waktu saat ini)
-2. Beri skor relevansi 0–100
-3. Generate suggested hook untuk tiap topik
-
-**Prompt:**
-```
-Hari ini {date}. Buat daftar {limit} topik trending untuk YouTube Shorts niche "{niche}" yang berpotensi viral di Indonesia.
-Untuk setiap topik berikan:
-- topic: judul topik
-- score: skor viralitas 0-100
-- suggested_hook: kalimat pembuka yang menarik (max 15 kata)
-Output JSON array.
-```
+### 8.5 TrendScout (backend/modules/trend_scout/scout.py)
+- Gemini generate topik trending berdasarkan tanggal + niche
+- Skor viralitas 0–100
+- Suggested hook per topik
+- Simpan cache di DB (TTL 6 jam per niche)
 
 ---
 
-### 8.5 YouTubeUploader (backend/modules/youtube_uploader/)
-
-**File:** `uploader.py`
-
-**OAuth Flow:**
-1. `get_oauth_url(channel_id)` → redirect URL ke Google consent screen
-   - Scope: `youtube.upload`, `youtube.readonly`, `youtube`, `youtube.force-ssl`
-2. `handle_callback(channel_id, code, db)` → tukar code dengan token, simpan ke `channel.youtube_credentials`
-3. `refresh_token_if_needed(channel)` → cek expiry, auto-refresh jika perlu
-
-**Upload:**
-```python
-def upload_video(job, channel, db) -> str:
-    # Returns youtube_video_id
-    # Uses googleapiclient.discovery + httplib2
-    # Resumable upload untuk file besar
-    # Set title, description, tags, categoryId=22 (People & Blogs), privacyStatus=public
-```
-
-**Metadata mapping:**
-```
-title       = job.title (max 100 chars)
-description = job.description + "\n\n#Shorts"
-tags        = job.tags + ["shorts", "ytshorts"]
-category    = 22 (People & Blogs) untuk semua niche
-privacyStatus = "public"
-madeForKids = false
-```
+### 8.6 CompetitorSpy (backend/modules/competitor_spy/spy.py)
+1. `yt-dlp` fetch metadata channel (tanpa download video)
+2. Ambil 50 video terakhir: judul, views, upload date, durasi
+3. Gemini analisis pola: niche, hook style, jam upload, frekuensi
+4. Generate rekomendasi strategi
 
 ---
 
-### 8.6 Scheduler (backend/modules/scheduler/)
+### 8.7 YouTubeUploader (backend/modules/youtube_uploader/uploader.py)
+- OAuth2 flow per channel
+- Resumable upload (google-api-python-client)
+- Auto-refresh token
+- A/B test: upload 2 video dengan title berbeda, jadwalkan check CTR 48 jam
 
-**File:** `scheduler.py`
+---
 
-**Uses:** `APScheduler.BackgroundScheduler`
+### 8.8 MultiPlatformExporter (backend/modules/multi_platform/exporter.py)
+- Terima output video final + metadata
+- Export ke format tiap platform (FFmpeg re-encode jika perlu)
+- Upload ke platform masing-masing via API:
+  - TikTok: TikTok Upload API (Content Posting API)
+  - Instagram Reels: Meta Graph API
+  - Facebook Reels: Meta Graph API
+- Simpan `{platform}_video_id` ke VideoJob
 
-**Jobs terdaftar:**
-1. `check_pending_jobs` — setiap 30 detik: ambil job `status=pending`, trigger processing
-2. `check_scheduled_uploads` — setiap 1 menit: cek job `status=scheduled` dan `scheduled_at <= now()`, trigger upload
-3. `cleanup_old_files` — setiap hari jam 03:00: hapus file temp lebih dari 7 hari
+---
 
-**Prime time slots (WIB, UTC+7):**
+### 8.9 Scheduler (backend/modules/scheduler/scheduler.py)
+- `check_pending_jobs` → setiap 30s
+- `check_scheduled_uploads` → setiap 1 menit
+- `check_ab_tests` → setiap jam: cek job dengan `ab_test_active=true` + `uploaded_at` > 48 jam, fetch CTR via YouTube Analytics API, tentukan winner, private loser
+- `analyze_best_hours` → setiap hari jam 02:00: fetch analytics per channel, update `channel.best_upload_hours`
+- `cleanup_old_files` → setiap hari jam 03:00
+
+**Prime time slots (WIB):** `07:00, 12:00, 16:00, 19:00, 21:00`  
+Jika `channel.best_upload_hours` terisi → pakai itu (lebih personal)
+
+---
+
+### 8.10 BotHandler (backend/modules/bot/)
+
+**Telegram FSM States:**
 ```
-07:00, 12:00, 16:00, 19:00, 21:00
+IDLE → awaiting_command
+awaiting_url → processing job
+awaiting_niche → awaiting_url
 ```
-> Jika tenant tidak set `scheduled_at`, sistem auto-assign ke slot prime time berikutnya
+
+**WhatsApp:** Same FSM via Twilio webhooks
+
+---
+
+### 8.11 ResellerManager (backend/modules/reseller/manager.py)
+- `create_sub_tenant(parent_id, data)` → buat tenant baru dengan `parent_tenant_id` set
+- Sub-tenant inherit `brand_name`, `brand_logo_url`, `brand_color` dari parent
+- Reseller hanya bisa manage sub-tenant miliknya
+- Reseller tidak bisa akses data job sub-tenant (privacy)
+- `get_reseller_stats(tenant_id)` → count sub-tenants, total jobs, estimasi value
 
 ---
 
 ## 9. Frontend Dashboard
 
 ### 9.1 Pages / Views
-
 ```
-/                   → redirect ke /dashboard jika login, /login jika tidak
-/login              → form login
+/                   → redirect ke /dashboard atau /login
+/login              → form login + brand color (white-label aware)
 /register           → form register
-/dashboard          → overview stats + recent jobs
-/jobs               → daftar semua job + filter
-/jobs/new           → buat job baru (wizard 3 langkah)
-/channels           → daftar channel + connect YouTube
+/dashboard          → overview stats + recent jobs + chart views
+/jobs               → daftar job + filter + status badge
+/jobs/new           → wizard 3 langkah
+/channels           → list channel + connect YouTube
 /keys               → kelola Gemini API key
-/trends             → scouting tren + generate script
-/settings           → profil akun
+/trends             → scouting + generate script
+/hooks              → viral hook library
+/spy                → competitor analyzer
+/bot                → setup Telegram/WhatsApp bot
+/reseller           → (hanya is_reseller=true) sub-tenant management
+/settings           → profil + branding
 ```
 
-### 9.2 Dashboard Overview (/)
-- Cards: Total Jobs, Jobs Done, Sedang Proses, Terjadwal
-- Chart: Views 30 hari terakhir (per channel)
-- Tabel recent jobs (10 terakhir) dengan status badge
+### 9.2 Job Wizard — Step 1: Sumber
+- **Tab Upload:** drag-and-drop, max 500MB, .mp4/.mov/.avi
+- **Tab URL:** input + preview thumbnail yt-dlp
+- **Tab AI Generate (slide):** pilih niche + topik/dari trend + toggle TTS
+- **Platform checkboxes:** YouTube ✓ | TikTok | Instagram Reels | Facebook Reels
 
-### 9.3 Job Wizard (/jobs/new)
-**Step 1 — Sumber konten:**
-- Tab: Upload File | URL | AI Generate
-- Upload: drag-and-drop, max 500MB, accept .mp4 .mov .avi
-- URL: input field, preview thumbnail
-- AI: pilih niche, input topik atau pakai saran trend
-
-**Step 2 — Pengaturan:**
-- Toggle: Tambah Subtitle otomatis
-- Toggle: Tambah Musik Latar
-- Input: Hook Text (opsional)
-- Pilih Channel (dropdown)
-- Jadwal: Segera / Prime time otomatis / Tanggal & jam custom
-
-**Step 3 — Review & Submit:**
-- Preview setting
-- Tombol "Mulai Proses"
+### 9.3 Job Wizard — Step 2: Pengaturan
+- Toggle: Subtitle otomatis
+- Toggle: Musik Latar
+- Hook Text (atau pilih dari library)
+- Pilih Channel
+- A/B Test title (toggle + input variant B)
+- Jadwal: Segera / Prime time otomatis / Smart (dari analytics) / Custom
 
 ### 9.4 Job Detail
-- Status badge dengan animasi (processing = spinner)
-- Progress bar real-time (polling /api/jobs/{id} setiap 3 detik)
-- Preview script (expandable)
-- Tombol: Download Video | Upload ke YouTube | Hapus Job
+- Progress bar real-time (polling 3s)
+- Preview script, hook yang dipakai
+- A/B test status card (jika aktif)
+- Multi-platform upload status (badge per platform)
+- Tombol: Download | Upload Now | Hapus
 
-### 9.5 Gemini Key Manager (/keys)
-- Tabel key dengan kolom: Label, API Key (masked), Status, Penggunaan, Terakhir Dipakai
-- Tombol: Tambah Key | Test Key | Toggle Aktif | Hapus
-- Badge: "Pool Aktif: X dari Y key"
-- Alert jika pool kosong
+### 9.5 Competitor Spy UI
+- Input URL channel
+- Loading state dengan steps (fetching, analyzing...)
+- Report card: Top Niches, Common Hooks, Best Hours, Posting Frequency
+- Rekomendasi action items
+- Tombol: "Buat Job dari Topik Ini"
 
-### 9.6 Design System
+### 9.6 Viral Hook Library UI
+- Filter per niche
+- Sort: CTR tertinggi | Paling sering dipakai | Terbaru
+- Tombol "Pakai hook ini" langsung copy ke job form
+- Submit hook baru (dari performa real job)
+
+### 9.7 White-label Awareness
+- Jika tenant adalah sub-tenant dari reseller → tampilkan `brand_name`, `brand_logo_url`, `brand_color`
+- Login page menyesuaikan branding
+- URL bisa custom subdomain (konfigurasi via cPanel)
+
+### 9.8 Design System
 ```
-Warna Utama:  #FF0000 (YouTube Red)
-Warna Aksen:  #282828 (YouTube Dark)
-Background:   #F9F9F9
-Card:         #FFFFFF, shadow-sm
-Font:         Inter (Google Fonts)
-Radius:       8px
+Warna Utama default:  #FF0000 (YouTube Red)
+Warna Aksen default:  #282828 (YouTube Dark)
+Background:           #F9F9F9
+Card:                 #FFFFFF, shadow-sm
+Font:                 Inter (Google Fonts)
+Radius:               8px
+White-label:          override dengan brand_color tenant reseller
 ```
 
 ---
@@ -681,15 +684,16 @@ Radius:       8px
 
 | Req | Detail |
 |-----|--------|
-| S1 | Semua password di-hash bcrypt (cost factor 12) |
-| S2 | JWT RS256 dengan expiry 24 jam |
-| S3 | Semua endpoint /api/* (kecuali /auth/*) wajib Bearer token |
-| S4 | Tenant hanya bisa akses data dengan `tenant_id` miliknya sendiri — validasi di setiap query |
-| S5 | API key Gemini selalu di-mask di response (8 char + `***masked***`) |
-| S6 | YouTube credentials disimpan terenkripsi di JSON field (Fernet enkripsi — fase 2) |
-| S7 | File upload dibatasi tipe (whitelist: mp4, mov, avi) dan ukuran (max 500MB) |
-| S8 | Rate limiting: max 100 req/menit per tenant (fase 2) |
-| S9 | CORS hanya izinkan origin yang terdaftar di prod |
+| S1 | Password di-hash bcrypt (cost 12) |
+| S2 | JWT HS256, expiry 24 jam |
+| S3 | Semua `/api/*` (kecuali `/auth/*` dan `/bot/*/webhook`) wajib Bearer |
+| S4 | Query selalu filter `tenant_id` — tidak ada akses lintas tenant |
+| S5 | API key Gemini di-mask di response |
+| S6 | YouTube credentials tersimpan terenkripsi (Fernet, fase 3) |
+| S7 | File upload: whitelist tipe + max 500MB |
+| S8 | Reseller hanya manage sub-tenant dengan `parent_tenant_id = reseller.id` |
+| S9 | Bot webhook verify Telegram secret token / Twilio signature |
+| S10 | CORS hanya origin terdaftar di prod |
 
 ---
 
@@ -698,78 +702,124 @@ Radius:       8px
 ```
 storage/
 ├── shared/
-│   └── music/           # Royalty-free BGM tracks
+│   └── music/              # Royalty-free BGM
 │       ├── upbeat_01.mp3
 │       └── calm_01.mp3
 └── {tenant_id}/
-    ├── uploads/         # File yang di-upload tenant
-    │   └── {job_id}.mp4
-    ├── downloads/       # File yang di-download dari URL
-    │   └── {job_id}.mp4
-    ├── output/          # Hasil final yang sudah diproses
-    │   └── {job_id}.mp4
-    ├── thumbnails/      # Thumbnail frame
-    │   └── {job_id}.jpg
-    └── temp/            # File intermediate (dihapus setelah done)
-        └── {job_id}_cropped.mp4
+    ├── uploads/            # Upload dari user
+    ├── downloads/          # Download dari URL
+    ├── slides/             # Frame image (text-to-shorts)
+    ├── tts/                # Audio TTS per slide
+    ├── output/             # Video final
+    │   └── platforms/      # Per-platform export
+    │       ├── youtube/
+    │       ├── tiktok/
+    │       ├── instagram/
+    │       └── facebook/
+    ├── thumbnails/
+    └── temp/               # Intermediate, auto-cleaned
 ```
 
 ---
 
-## 12. Background Job Flow
+## 12. Deployment Guide
 
+### 12.1 Local — Laragon (Windows)
+
+**Requirements:**
+- Laragon Full (Apache + MySQL + PHP 8.x)
+- Python 3.11+ terinstall di PATH
+- FFmpeg binary di `C:\laragon\bin\ffmpeg\` (add to PATH)
+
+**Setup steps:**
+```bash
+# 1. Clone repo ke C:\laragon\www\shorts-factory\
+# 2. Buat virtual environment
+cd C:\laragon\www\shorts-factory
+python -m venv venv
+venv\Scripts\activate
+
+# 3. Install dependencies
+pip install -r requirements.txt
+
+# 4. Copy .env
+copy .env.example .env
+# Edit .env: DATABASE_URL=sqlite:///./shortsdb.sqlite
+
+# 5. Jalankan
+uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+# Akses: http://localhost:8000
 ```
-POST /api/jobs
-     │
-     ▼
-DB: status=pending
-     │
-     ▼ (APScheduler check_pending_jobs, setiap 30s)
-     │
-     ├─ source_type=url? → yt-dlp download → storage/{tid}/downloads/
-     ├─ source_type=upload? → sudah ada di storage/{tid}/uploads/
-     └─ source_type=ai_generate? → generate script → generate video (fase 2)
-     │
-     ▼
-DB: status=processing, progress=0
-     │
-     ▼
-VideoProcessor.run(job)
-  ├── probe            progress=10
-  ├── crop 9:16        progress=30
-  ├── script gen       progress=50
-  ├── subtitles        progress=70
-  ├── hook overlay     progress=80
-  ├── music mix        progress=90
-  └── thumbnail        progress=95
-     │
-     ▼
-DB: status=done, progress=100, output_filename=...
-     │
-     ├── scheduled_at set? → DB: status=scheduled
-     └── upload_now? → YouTubeUploader.upload(job) → DB: status=uploaded
+
+**Laragon Virtual Host (opsional):**
+- Di Laragon Menu → Apache → Virtual Hosts → add: `shorts.test → C:\laragon\www\shorts-factory`
+- Gunakan reverse proxy Apache → Uvicorn port 8000
+
+---
+
+### 12.2 cPanel Shared/VPS Hosting
+
+**Requirements:**
+- cPanel dengan Python App Manager (CloudLinux / LiteSpeed)
+- Python 3.11 tersedia di Python App Manager
+- MySQL database (via cPanel MySQL Databases)
+- SSH access untuk pip install
+
+**Setup steps:**
+```bash
+# 1. Upload files via File Manager atau Git (cPanel Git Version Control)
+
+# 2. Buat Python App di cPanel:
+#    Application root: /home/user/shorts-factory
+#    Application URL: /   (atau subdomain)
+#    Application startup file: passenger_wsgi.py
+#    Python version: 3.11
+
+# 3. SSH: install dependencies
+cd ~/shorts-factory
+source virtualenv/bin/activate   # path dari cPanel Python App
+pip install -r requirements.txt
+
+# 4. Buat .env dengan DATABASE_URL MySQL:
+DATABASE_URL=mysql+pymysql://user:pass@localhost/dbname
+
+# 5. cPanel Cron Jobs (pengganti APScheduler jika perlu):
+#    * * * * * /home/user/shorts-factory/virtualenv/bin/python /home/user/shorts-factory/worker.py
+
+# 6. Passenger WSGI entry point: passenger_wsgi.py
+```
+
+**passenger_wsgi.py:**
+```python
+import sys, os
+sys.path.insert(0, os.path.dirname(__file__))
+from backend.main import app as application
 ```
 
 ---
 
-## 13. Error Handling
+## 13. Environment Variables
 
-| Error Code | Situasi | Response |
-|------------|---------|----------|
-| 400 | Input tidak valid | `{ "error": "pesan spesifik" }` |
-| 401 | Token tidak ada/expired | `{ "error": "Unauthorized" }` |
-| 403 | Akses data tenant lain | `{ "error": "Forbidden" }` |
-| 404 | Resource tidak ditemukan | `{ "error": "Not found" }` |
-| 409 | Duplikasi (email, key) | `{ "error": "Sudah terdaftar" }` |
-| 422 | Validasi Pydantic gagal | Pydantic default response |
-| 429 | Rate limit (fase 2) | `{ "error": "Too many requests" }` |
-| 500 | Error internal | `{ "error": "Internal server error", "job_id": "..." }` |
-
-Semua error dari job processing disimpan ke `job.error_message` dan job berstatus `failed`.
+| Variable | Required | Default | Keterangan |
+|----------|----------|---------|------------|
+| `SESSION_SECRET` | ✅ | — | JWT signing key |
+| `DATABASE_URL` | ✗ | `sqlite:///./shortsdb.sqlite` | MySQL di prod |
+| `YOUTUBE_CLIENT_ID` | ✅ upload | — | Google OAuth |
+| `YOUTUBE_CLIENT_SECRET` | ✅ upload | — | Google OAuth |
+| `YOUTUBE_REDIRECT_URI` | ✅ upload | — | OAuth callback |
+| `TELEGRAM_BOT_TOKEN` | ✗ | — | Telegram bot |
+| `TWILIO_ACCOUNT_SID` | ✗ | — | WhatsApp via Twilio |
+| `TWILIO_AUTH_TOKEN` | ✗ | — | WhatsApp via Twilio |
+| `TWILIO_WHATSAPP_FROM` | ✗ | — | `whatsapp:+14155238886` |
+| `TIKTOK_CLIENT_KEY` | ✗ | — | TikTok Upload API |
+| `TIKTOK_CLIENT_SECRET` | ✗ | — | TikTok Upload API |
+| `META_APP_ID` | ✗ | — | Instagram/Facebook API |
+| `META_APP_SECRET` | ✗ | — | Instagram/Facebook API |
+| `FFMPEG_PATH` | ✗ | `ffmpeg` | Path absolut FFmpeg binary |
 
 ---
 
-## 14. Limits per Plan
+## 14. Plan Limits
 
 | Feature | Free | Pro | Enterprise |
 |---------|------|-----|------------|
@@ -778,50 +828,45 @@ Semua error dari job processing disimpan ke `job.error_message` dan job berstatu
 | Jobs/bulan | 10 | 200 | Unlimited |
 | File upload max | 100MB | 500MB | 2GB |
 | Concurrent jobs | 1 | 5 | 20 |
-
-> v1.0: semua tenant = free plan, limit enforcement di fase 2
+| Platforms | YouTube only | +TikTok | All platforms |
+| Bot | ✗ | Telegram | Telegram + WhatsApp |
+| Competitor Spy | 3/bulan | 20/bulan | Unlimited |
+| Reseller mode | ✗ | ✗ | ✅ |
 
 ---
 
 ## 15. Testing Checklist
 
-### API (Smoke Tests)
-- [ ] POST /api/auth/register → 201
-- [ ] POST /api/auth/login → 200 dengan token
-- [ ] GET /api/auth/me → 200 dengan data tenant
-- [ ] POST /api/keys → 201, api_key di-mask
-- [ ] POST /api/keys/test (key valid) → `{ valid: true }`
-- [ ] POST /api/jobs (sumber: url) → 201
-- [ ] GET /api/jobs/{id} → 200 dengan progress
-- [ ] GET /api/trends?niche=motivasi → 200 dengan list topik
-- [ ] GET /api/jobs/{id}/download (setelah done) → file stream
-- [ ] Akses data tenant lain → 403
+### API Smoke Tests
+- [ ] Register, login, /me
+- [ ] CRUD Gemini key + test + mask
+- [ ] CRUD Channel + OAuth flow
+- [ ] Job: upload, url, text_to_shorts
+- [ ] Download video output
+- [ ] Trends + generate script
+- [ ] Hook library CRUD
+- [ ] Competitor spy analyze
+- [ ] Bot connect + webhook
+- [ ] Reseller: buat sub-tenant + branding
+- [ ] Cross-tenant access → 403
 
 ### Video Processing
-- [ ] Crop video 16:9 → output 9:16 (1080x1920)
-- [ ] Subtitle ter-burn di video output
-- [ ] Hook text muncul di 0–3 detik
-- [ ] Musik ter-mix di volume rendah (tidak mendominasi)
+- [ ] 16:9 input → 9:16 1080x1920 output
+- [ ] Subtitle ter-burn
+- [ ] Hook text di 0–3 detik
+- [ ] Musik mix volume rendah
+- [ ] Text-to-Shorts: slide video dengan TTS
+- [ ] Export ke tiap platform format
 
 ### Scheduler
-- [ ] Job pending diambil dalam 30 detik
-- [ ] Job scheduled di-upload tepat waktu
+- [ ] Pending job diproses dalam 30s
+- [ ] Scheduled job di-upload tepat waktu
+- [ ] A/B test check di 48 jam
+- [ ] Best hours update harian
 
 ---
 
-## 16. Environment Variables
-
-| Variable | Required | Default | Keterangan |
-|----------|----------|---------|------------|
-| `SESSION_SECRET` | ✅ | — | JWT signing key |
-| `DATABASE_URL` | ✗ | `sqlite:///./shortsdb.sqlite` | PostgreSQL di prod |
-| `YOUTUBE_CLIENT_ID` | ✅ (untuk upload) | — | Google OAuth client |
-| `YOUTUBE_CLIENT_SECRET` | ✅ (untuk upload) | — | Google OAuth secret |
-| `YOUTUBE_REDIRECT_URI` | ✅ (untuk upload) | — | Callback URL OAuth |
-
----
-
-## 17. File Structure Target
+## 16. File Structure Target
 
 ```
 /
@@ -829,46 +874,70 @@ Semua error dari job processing disimpan ke `job.error_message` dan job berstatu
 ├── README.md
 ├── replit.md
 ├── requirements.txt
+├── .env.example
+├── passenger_wsgi.py          ← cPanel entry point
+├── worker.py                  ← standalone worker (cPanel cron)
 ├── backend/
 │   ├── __init__.py
 │   ├── main.py
 │   ├── core/
-│   │   ├── __init__.py
 │   │   ├── config.py
 │   │   ├── database.py
 │   │   ├── security.py
 │   │   ├── gemini_pool.py
 │   │   └── deps.py
 │   ├── models/
-│   │   ├── __init__.py
 │   │   └── models.py
 │   ├── api/
-│   │   ├── __init__.py
 │   │   ├── auth.py
 │   │   ├── keys.py
 │   │   ├── channels.py
 │   │   ├── jobs.py
 │   │   ├── trends.py
-│   │   └── analytics.py
+│   │   ├── analytics.py
+│   │   ├── hooks.py
+│   │   ├── spy.py
+│   │   ├── bot.py
+│   │   └── reseller.py
 │   └── modules/
-│       ├── __init__.py
 │       ├── video_processor/
-│       │   ├── __init__.py
 │       │   └── processor.py
 │       ├── script_generator/
-│       │   ├── __init__.py
+│       │   └── generator.py
+│       ├── text_to_shorts/
 │       │   └── generator.py
 │       ├── youtube_uploader/
-│       │   ├── __init__.py
 │       │   └── uploader.py
+│       ├── multi_platform/
+│       │   └── exporter.py
 │       ├── trend_scout/
-│       │   ├── __init__.py
 │       │   └── scout.py
+│       ├── competitor_spy/
+│       │   └── spy.py
+│       ├── hook_library/
+│       │   └── library.py
+│       ├── bot/
+│       │   ├── telegram_bot.py
+│       │   └── whatsapp_bot.py
+│       ├── reseller/
+│       │   └── manager.py
 │       └── scheduler/
-│           ├── __init__.py
 │           └── scheduler.py
 ├── frontend/
-│   └── index.html          # SPA entry point
+│   ├── index.html
+│   ├── css/
+│   │   └── app.css
+│   └── js/
+│       ├── app.js
+│       ├── auth.js
+│       ├── jobs.js
+│       ├── channels.js
+│       ├── keys.js
+│       ├── trends.js
+│       ├── hooks.js
+│       ├── spy.js
+│       ├── bot.js
+│       └── reseller.js
 └── storage/
     └── shared/
         └── music/
@@ -876,40 +945,158 @@ Semua error dari job processing disimpan ke `job.error_message` dan job berstatu
 
 ---
 
-## 18. Implementation Priority (Sprint Order)
-
-### Sprint 1 — Foundation ✅ (sedang berjalan)
-- [x] Project structure
-- [x] Database models
-- [x] Auth (register/login/me)
-- [x] Gemini key pool (per-tenant isolation)
-- [ ] FastAPI main + routing
-- [ ] SPA frontend dasar
-
-### Sprint 2 — Core Pipeline
-- [ ] Video processor (crop, subtitle, hook)
-- [ ] Script generator (semua niche)
-- [ ] Trend scout
-- [ ] Job API + background worker
-- [ ] File upload/download
-
-### Sprint 3 — YouTube Integration
-- [ ] OAuth flow
-- [ ] Video upload
-- [ ] Analytics fetch
-
-### Sprint 4 — Scheduler & Polish
-- [ ] APScheduler integration
-- [ ] Prime time auto-scheduling
-- [ ] Dashboard UI lengkap
-- [ ] Error handling & logging
-
-### Sprint 5 — SaaS Hardening
-- [ ] Plan limits enforcement
-- [ ] Rate limiting
-- [ ] YouTube credential encryption
-- [ ] Multi-channel support penuh
+## 17. Build Phases
 
 ---
 
-*PRD ini adalah dokumen living — update setiap ada keputusan arsitektur baru.*
+### 🚀 PHASE 1 — Foundation & Core Pipeline
+**Target: Platform bisa dipakai untuk proses dan upload video dasar**  
+**Duration: Sprint 1–2**
+
+#### Backend
+- [x] Project structure + `__init__.py`
+- [x] Database models (Tenant, GeminiKey, Channel, VideoJob)
+- [x] Auth: register, login, JWT, `/me`
+- [x] Per-tenant Gemini key pool (round-robin, thread-safe)
+- [ ] FastAPI `main.py` + routing + CORS + static SPA serve
+- [ ] API: `/api/keys` CRUD + test endpoint
+- [ ] API: `/api/channels` CRUD
+- [ ] API: `/api/jobs` CRUD + file upload
+- [ ] VideoProcessor: crop 9:16, hook text, subtitle burn, musik
+- [ ] ScriptGenerator: semua 9 niche
+- [ ] Background worker (APScheduler): pending jobs
+- [ ] File storage layout (`storage/{tid}/...`)
+
+#### Frontend
+- [ ] SPA shell (login, register, navbar)
+- [ ] Dashboard overview
+- [ ] Job list + status badge
+- [ ] Job wizard (upload + URL)
+- [ ] Gemini key manager
+- [ ] Channel manager + OAuth flow
+
+#### Deployment
+- [ ] `requirements.txt` final
+- [ ] `.env.example`
+- [ ] `passenger_wsgi.py` untuk cPanel
+- [ ] Panduan setup Laragon (README section)
+- [ ] Panduan setup cPanel (README section)
+
+---
+
+### 🔥 PHASE 2 — AI Power Features
+**Target: Text-to-Shorts, Trend Scout, Viral Hook Library**  
+**Duration: Sprint 3**
+
+#### Backend
+- [ ] TrendScout module (Gemini generate + cache 6 jam)
+- [ ] API: `/api/trends` + `/api/trends/generate-script` (dengan hook_options + title_variant_b)
+- [ ] Text-to-Shorts generator (slide builder + Pillow + gTTS)
+- [ ] HookLibrary model + migration
+- [ ] API: `/api/hooks` CRUD + best hooks
+- [ ] Job wizard: sumber `text_to_shorts`
+- [ ] Seeder: 200+ hook pre-built per niche
+
+#### Frontend
+- [ ] Trend scouting UI + "buat job dari topik ini"
+- [ ] Hook library browser + filter + sort CTR
+- [ ] Job wizard tab: AI Generate (slide)
+- [ ] Hook picker di job form
+
+---
+
+### ⚡ PHASE 3 — Multi-Platform & A/B Testing
+**Target: 1 video → 4 platform, A/B title testing otomatis**  
+**Duration: Sprint 4**
+
+#### Backend
+- [ ] MultiPlatformExporter: FFmpeg re-encode per platform
+- [ ] TikTok Upload API integration
+- [ ] Meta Graph API: Instagram Reels + Facebook Reels
+- [ ] AbTestResult model + migration
+- [ ] API: `/api/jobs/{id}/ab-test`
+- [ ] Scheduler: `check_ab_tests` (48 jam CTR fetch + auto-private loser)
+- [ ] Smart scheduler: `analyze_best_hours` per channel dari YouTube Analytics
+- [ ] Channel model: `best_upload_hours` field
+
+#### Frontend
+- [ ] Platform checkboxes di job wizard
+- [ ] Per-platform upload status badge
+- [ ] A/B test card di job detail
+- [ ] Analytics: chart views + A/B results
+
+---
+
+### 🤖 PHASE 4 — Bot & Competitor Spy
+**Target: Kontrol via Telegram/WhatsApp, analisis competitor**  
+**Duration: Sprint 5**
+
+#### Backend
+- [ ] Telegram bot (python-telegram-bot) + FSM
+- [ ] WhatsApp bot (Twilio) + FSM
+- [ ] BotSession model + migration
+- [ ] API: `/api/bot/*` webhook + connect + disconnect
+- [ ] CompetitorSpy module (yt-dlp + Gemini analysis)
+- [ ] API: `/api/spy/analyze` + history
+
+#### Frontend
+- [ ] Bot setup UI (connect Telegram/WhatsApp + QR/link)
+- [ ] Competitor spy UI (form URL + report card)
+- [ ] Notifikasi toast realtime (job done, upload sukses)
+
+---
+
+### 🏢 PHASE 5 — Reseller / White-label & SaaS Hardening
+**Target: Reseller bisa onboard klien dengan brand sendiri**  
+**Duration: Sprint 6**
+
+#### Backend
+- [ ] Reseller fields di Tenant model + migration
+- [ ] ResellerManager module
+- [ ] API: `/api/reseller/*`
+- [ ] Sub-tenant: inherit branding dari parent
+- [ ] Plan limits enforcement (middleware check jobs/bulan, concurrent)
+- [ ] Rate limiting (slowapi, 100 req/menit per tenant)
+- [ ] YouTube credentials encryption (Fernet)
+- [ ] `worker.py` standalone script (untuk cPanel cron tanpa APScheduler)
+- [ ] Logging ke file (`logs/app.log`, rotate harian)
+
+#### Frontend
+- [ ] Reseller dashboard: sub-tenant list + buat + stats
+- [ ] Branding editor (logo, warna, nama)
+- [ ] Login page white-label aware (baca branding dari query param `?brand=xxx`)
+- [ ] Plan usage indicator di settings
+
+---
+
+### 🔒 PHASE 6 — Production Hardening (Future)
+**Duration: Sprint 7+**
+- [ ] Billing integration (Midtrans / Stripe)
+- [ ] PostgreSQL migration (dari SQLite/MySQL)
+- [ ] CDN untuk storage output (Cloudflare R2 / S3)
+- [ ] Email notifikasi (job done, upload gagal)
+- [ ] API documentation (Swagger UI sudah otomatis via FastAPI)
+- [ ] Multi-language UI (EN + ID)
+- [ ] Backup otomatis DB harian
+
+---
+
+## 18. Error Handling
+
+| Code | Situasi | Response format |
+|------|---------|-----------------|
+| 400 | Input tidak valid | `{ "error": "pesan" }` |
+| 401 | Token tidak ada/expired | `{ "error": "Unauthorized" }` |
+| 403 | Akses data tenant lain | `{ "error": "Forbidden" }` |
+| 404 | Resource tidak ditemukan | `{ "error": "Not found" }` |
+| 409 | Duplikasi | `{ "error": "Sudah terdaftar" }` |
+| 422 | Validasi gagal | Pydantic default |
+| 429 | Rate limit | `{ "error": "Too many requests", "retry_after": 60 }` |
+| 500 | Error internal | `{ "error": "Internal server error" }` |
+
+Job error: simpan ke `job.error_message`, set `status=failed`.
+
+---
+
+*PRD ini adalah living document. Update setiap ada keputusan arsitektur baru.*  
+*Versi sebelumnya: v1.0.0 (2026-07-22) — tanpa multi-platform, bot, spy, reseller*

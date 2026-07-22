@@ -1,4 +1,8 @@
 import os
+
+# Remove any injected PostgreSQL DATABASE_URL before pydantic reads env
+os.environ.pop("DATABASE_URL", None)
+
 from pydantic_settings import BaseSettings
 
 

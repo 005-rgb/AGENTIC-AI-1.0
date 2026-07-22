@@ -5,7 +5,10 @@ Each tenant has an isolated pool derived from their stored GeminiKey records.
 import threading
 from datetime import datetime
 from typing import Optional
-import google.generativeai as genai
+try:
+    import google.generativeai as genai   # legacy SDK still works
+except ImportError:
+    genai = None  # type: ignore
 
 
 class TenantKeyPool:

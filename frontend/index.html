@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>YouTube Shorts Factory</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="/static/css/app.css"/>
+</head>
+<body>
+  <!-- Auth Pages -->
+  <div id="page-login" class="page auth-page" style="display:none">
+    <div class="auth-card">
+      <div class="auth-logo"><span class="logo-icon">▶</span><span class="logo-text">Shorts Factory</span></div>
+      <h2>Masuk ke Akun</h2>
+      <form id="form-login">
+        <div class="field"><label>Email</label><input type="email" id="login-email" required placeholder="email@kamu.com"/></div>
+        <div class="field"><label>Password</label><input type="password" id="login-password" required placeholder="••••••••"/></div>
+        <div id="login-error" class="alert alert-error" style="display:none"></div>
+        <button type="submit" class="btn btn-primary btn-full">Masuk</button>
+      </form>
+      <p class="auth-switch">Belum punya akun? <a href="#" onclick="showPage('register')">Daftar</a></p>
+    </div>
+  </div>
+
+  <div id="page-register" class="page auth-page" style="display:none">
+    <div class="auth-card">
+      <div class="auth-logo"><span class="logo-icon">▶</span><span class="logo-text">Shorts Factory</span></div>
+      <h2>Daftar Gratis</h2>
+      <form id="form-register">
+        <div class="field"><label>Nama</label><input type="text" id="reg-name" required placeholder="Nama kamu"/></div>
+        <div class="field"><label>Email</label><input type="email" id="reg-email" required placeholder="email@kamu.com"/></div>
+        <div class="field"><label>Password</label><input type="password" id="reg-password" required placeholder="Min 8 karakter"/></div>
+        <div id="reg-error" class="alert alert-error" style="display:none"></div>
+        <button type="submit" class="btn btn-primary btn-full">Daftar Sekarang</button>
+      </form>
+      <p class="auth-switch">Sudah punya akun? <a href="#" onclick="showPage('login')">Masuk</a></p>
+    </div>
+  </div>
+
+  <!-- App Shell -->
+  <div id="app-shell" style="display:none">
+    <nav class="sidebar">
+      <div class="sidebar-logo">
+        <span class="logo-icon">▶</span>
+        <span class="logo-text">Shorts Factory</span>
+      </div>
+      <ul class="sidebar-nav">
+        <li><a href="#" onclick="showPage('dashboard')" data-page="dashboard">📊 Dashboard</a></li>
+        <li><a href="#" onclick="showPage('jobs')" data-page="jobs">🎬 Video Jobs</a></li>
+        <li><a href="#" onclick="showPage('new-job')" data-page="new-job">➕ Buat Job</a></li>
+        <li><a href="#" onclick="showPage('channels')" data-page="channels">📺 Channels</a></li>
+        <li><a href="#" onclick="showPage('keys')" data-page="keys">🔑 Gemini Keys</a></li>
+        <li><a href="#" onclick="showPage('trends')" data-page="trends">🔥 Trends & Script</a></li>
+      </ul>
+      <div class="sidebar-footer">
+        <span id="nav-user-name" class="user-badge"></span>
+        <button class="btn btn-ghost btn-sm" onclick="logout()">Keluar</button>
+      </div>
+    </nav>
+
+    <main class="main-content">
+      <!-- Dashboard -->
+      <div id="page-dashboard" class="page" style="display:none">
+        <div class="page-header"><h1>Dashboard</h1><p>Selamat datang di YouTube Shorts Factory 🚀</p></div>
+        <div class="stats-grid">
+          <div class="stat-card"><div class="stat-value" id="stat-total">0</div><div class="stat-label">Total Jobs</div></div>
+          <div class="stat-card green"><div class="stat-value" id="stat-done">0</div><div class="stat-label">Selesai</div></div>
+          <div class="stat-card yellow"><div class="stat-value" id="stat-processing">0</div><div class="stat-label">Diproses</div></div>
+          <div class="stat-card blue"><div class="stat-value" id="stat-scheduled">0</div><div class="stat-label">Terjadwal</div></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3>Job Terbaru</h3></div>
+          <div id="recent-jobs-table"></div>
+        </div>
+      </div>
+
+      <!-- Jobs List -->
+      <div id="page-jobs" class="page" style="display:none">
+        <div class="page-header">
+          <h1>Video Jobs</h1>
+          <button class="btn btn-primary" onclick="showPage('new-job')">+ Buat Job Baru</button>
+        </div>
+        <div class="filter-bar">
+          <select id="job-filter-status" onchange="loadJobs()">
+            <option value="">Semua Status</option>
+            <option value="pending">Pending</option>
+            <option value="processing">Diproses</option>
+            <option value="done">Selesai</option>
+            <option value="scheduled">Terjadwal</option>
+            <option value="uploaded">Uploaded</option>
+            <option value="failed">Gagal</option>
+          </select>
+        </div>
+        <div id="jobs-list"></div>
+        <div id="jobs-pagination" class="pagination"></div>
+      </div>
+
+      <!-- Job Detail -->
+      <div id="page-job-detail" class="page" style="display:none">
+        <div class="page-header">
+          <button class="btn btn-ghost" onclick="showPage('jobs')">← Kembali</button>
+          <h1 id="job-detail-title">Detail Job</h1>
+        </div>
+        <div id="job-detail-content"></div>
+      </div>
+
+      <!-- New Job Wizard -->
+      <div id="page-new-job" class="page" style="display:none">
+        <div class="page-header"><h1>Buat Job Baru</h1></div>
+        <div class="wizard">
+          <div class="wizard-steps">
+            <div class="step active" id="wstep-1">1. Sumber Konten</div>
+            <div class="step" id="wstep-2">2. Pengaturan</div>
+            <div class="step" id="wstep-3">3. Review & Submit</div>
+          </div>
+
+          <!-- Step 1 -->
+          <div id="wizard-step-1" class="wizard-body">
+            <div class="tabs">
+              <button class="tab active" onclick="setSourceTab('upload')">📤 Upload File</button>
+              <button class="tab" onclick="setSourceTab('url')">🔗 URL Video</button>
+              <button class="tab" onclick="setSourceTab('text_to_shorts')">🤖 AI Generate</button>
+            </div>
+            <div id="tab-upload" class="tab-content">
+              <div class="dropzone" id="dropzone" ondrop="handleDrop(event)" ondragover="event.preventDefault()">
+                <div class="dropzone-inner">
+                  <div class="dropzone-icon">🎬</div>
+                  <p>Drag & drop file video, atau</p>
+                  <label class="btn btn-outline"><input type="file" id="upload-file" accept=".mp4,.mov,.avi,.mkv" style="display:none" onchange="updateDropzoneLabel(this)"/> Pilih File</label>
+                  <p class="hint">MP4, MOV, AVI — Maks 500MB</p>
+                </div>
+              </div>
+            </div>
+            <div id="tab-url" class="tab-content" style="display:none">
+              <div class="field">
+                <label>URL Video (YouTube, TikTok, dll)</label>
+                <input type="url" id="source-url" placeholder="https://youtube.com/watch?v=..." style="width:100%"/>
+              </div>
+            </div>
+            <div id="tab-ai" class="tab-content" style="display:none">
+              <div class="field">
+                <label>Niche Konten</label>
+                <select id="ai-niche" style="width:100%">
+                  <option value="motivasi">💪 Motivasi</option>
+                  <option value="edukasi">📚 Edukasi</option>
+                  <option value="fakta">⚡ Fakta Unik</option>
+                  <option value="humor">😄 Humor</option>
+                  <option value="tutorial">🛠️ Tutorial</option>
+                  <option value="lifestyle">✨ Lifestyle</option>
+                  <option value="finance">💰 Finance</option>
+                  <option value="kesehatan">❤️ Kesehatan</option>
+                  <option value="teknologi">🤖 Teknologi</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Topik / Ide Konten</label>
+                <input type="text" id="ai-topic" placeholder="Contoh: 5 Kebiasaan Orang Sukses" style="width:100%"/>
+              </div>
+              <button class="btn btn-outline" onclick="loadTrendsForWizard()">🔥 Lihat Topik Trending</button>
+              <div id="wizard-trends" class="trends-mini" style="display:none"></div>
+            </div>
+            <div class="wizard-actions">
+              <button class="btn btn-primary" onclick="wizardNext(1)">Lanjut →</button>
+            </div>
+          </div>
+
+          <!-- Step 2 -->
+          <div id="wizard-step-2" class="wizard-body" style="display:none">
+            <div class="form-grid">
+              <div class="field">
+                <label>Niche Konten</label>
+                <select id="job-niche">
+                  <option value="">-- Pilih niche --</option>
+                  <option value="motivasi">💪 Motivasi</option>
+                  <option value="edukasi">📚 Edukasi</option>
+                  <option value="fakta">⚡ Fakta Unik</option>
+                  <option value="humor">😄 Humor</option>
+                  <option value="tutorial">🛠️ Tutorial</option>
+                  <option value="lifestyle">✨ Lifestyle</option>
+                  <option value="finance">💰 Finance</option>
+                  <option value="kesehatan">❤️ Kesehatan</option>
+                  <option value="teknologi">🤖 Teknologi</option>
+                  <option value="lainnya">📌 Lainnya</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Channel (opsional)</label>
+                <select id="job-channel"><option value="">-- Tanpa channel --</option></select>
+              </div>
+              <div class="field full-width">
+                <label>Hook Text (teks besar di awal video)</label>
+                <input type="text" id="job-hook" placeholder="Contoh: Kamu HARUS tahu ini!"/>
+              </div>
+              <div class="field">
+                <label>Jadwal Upload</label>
+                <select id="job-schedule-type" onchange="toggleScheduleInput()">
+                  <option value="immediate">Segera diproses</option>
+                  <option value="prime">Prime time otomatis</option>
+                  <option value="custom">Tanggal & jam custom</option>
+                </select>
+              </div>
+              <div class="field" id="schedule-custom-field" style="display:none">
+                <label>Jadwal Upload</label>
+                <input type="datetime-local" id="job-schedule-at"/>
+              </div>
+            </div>
+            <div class="toggle-grid">
+              <label class="toggle-label"><input type="checkbox" id="job-subtitles" checked/><span class="toggle"></span>Subtitle otomatis</label>
+              <label class="toggle-label"><input type="checkbox" id="job-music"/><span class="toggle"></span>Musik latar</label>
+            </div>
+            <div class="field">
+              <label>Platform Upload</label>
+              <div class="checkbox-grid">
+                <label><input type="checkbox" value="youtube" checked/> 🎬 YouTube Shorts</label>
+                <label><input type="checkbox" value="tiktok"/> 🎵 TikTok</label>
+                <label><input type="checkbox" value="instagram"/> 📸 Instagram Reels</label>
+                <label><input type="checkbox" value="facebook"/> 👍 Facebook Reels</label>
+              </div>
+            </div>
+            <div class="wizard-actions">
+              <button class="btn btn-ghost" onclick="wizardBack(2)">← Kembali</button>
+              <button class="btn btn-primary" onclick="wizardNext(2)">Review →</button>
+            </div>
+          </div>
+
+          <!-- Step 3 -->
+          <div id="wizard-step-3" class="wizard-body" style="display:none">
+            <div class="review-card" id="review-summary"></div>
+            <div id="submit-error" class="alert alert-error" style="display:none"></div>
+            <div class="wizard-actions">
+              <button class="btn btn-ghost" onclick="wizardBack(3)">← Kembali</button>
+              <button class="btn btn-primary" id="btn-submit-job" onclick="submitJob()">🚀 Mulai Proses</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Channels -->
+      <div id="page-channels" class="page" style="display:none">
+        <div class="page-header">
+          <h1>Channel YouTube</h1>
+          <button class="btn btn-primary" onclick="showAddChannelModal()">+ Tambah Channel</button>
+        </div>
+        <div id="channels-list"></div>
+      </div>
+
+      <!-- Gemini Keys -->
+      <div id="page-keys" class="page" style="display:none">
+        <div class="page-header"><h1>Gemini API Keys</h1></div>
+        <div class="pool-banner" id="pool-banner"></div>
+        <div class="card">
+          <div class="card-header">
+            <h3>Tambah API Key</h3>
+          </div>
+          <div class="add-key-form">
+            <input type="text" id="new-key-value" placeholder="AIzaSy..." style="flex:1"/>
+            <input type="text" id="new-key-label" placeholder="Label (opsional)" style="width:200px"/>
+            <button class="btn btn-primary" onclick="addKey()">Tambah</button>
+            <button class="btn btn-outline" onclick="testNewKey()">Test</button>
+          </div>
+          <div id="key-test-result"></div>
+        </div>
+        <div id="keys-table"></div>
+      </div>
+
+      <!-- Trends -->
+      <div id="page-trends" class="page" style="display:none">
+        <div class="page-header"><h1>🔥 Trend Scout & Script Generator</h1></div>
+        <div class="card">
+          <div class="form-row">
+            <select id="trend-niche" style="flex:1">
+              <option value="motivasi">💪 Motivasi</option>
+              <option value="edukasi">📚 Edukasi</option>
+              <option value="fakta">⚡ Fakta Unik</option>
+              <option value="humor">😄 Humor</option>
+              <option value="tutorial">🛠️ Tutorial</option>
+              <option value="lifestyle">✨ Lifestyle</option>
+              <option value="finance">💰 Finance</option>
+              <option value="kesehatan">❤️ Kesehatan</option>
+              <option value="teknologi">🤖 Teknologi</option>
+            </select>
+            <button class="btn btn-primary" onclick="loadTrends()">Cari Tren 🔍</button>
+          </div>
+        </div>
+        <div id="trends-list"></div>
+
+        <div class="card" style="margin-top:24px">
+          <div class="card-header"><h3>✍️ Generate Script AI</h3></div>
+          <div class="field"><label>Topik</label><input type="text" id="script-topic" placeholder="Masukkan topik..." style="width:100%"/></div>
+          <div class="form-row">
+            <select id="script-niche" style="flex:1">
+              <option value="motivasi">💪 Motivasi</option>
+              <option value="edukasi">📚 Edukasi</option>
+              <option value="fakta">⚡ Fakta</option>
+              <option value="humor">😄 Humor</option>
+              <option value="tutorial">🛠️ Tutorial</option>
+              <option value="lifestyle">✨ Lifestyle</option>
+              <option value="finance">💰 Finance</option>
+              <option value="kesehatan">❤️ Kesehatan</option>
+              <option value="teknologi">🤖 Teknologi</option>
+            </select>
+            <select id="script-duration">
+              <option value="30">30 detik</option>
+              <option value="45" selected>45 detik</option>
+              <option value="60">60 detik</option>
+            </select>
+            <button class="btn btn-primary" onclick="generateScript()">Generate 🤖</button>
+          </div>
+          <div id="script-result" style="display:none"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Modals -->
+  <div id="modal-overlay" class="modal-overlay" style="display:none" onclick="closeModal()">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div id="modal-content"></div>
+    </div>
+  </div>
+
+  <div id="toast-container" class="toast-container"></div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
