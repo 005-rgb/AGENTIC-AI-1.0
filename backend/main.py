@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from backend.core.config import settings
 from backend.core.database import Base, engine
 from backend.modules.scheduler.scheduler import start_scheduler, stop_scheduler
-from backend.api import auth, keys, channels, jobs, trends, analytics
+from backend.api import auth, keys, channels, jobs, trends, analytics, hooks, spy, bot, reseller
 
 
 @asynccontextmanager
@@ -18,6 +18,19 @@ async def lifespan(app: FastAPI):
     start_scheduler()
     # Ensure storage dirs exist
     os.makedirs("storage/shared/music", exist_ok=True)
+    # Seed global hook library
+    try:
+        from backend.core.database import SessionLocal
+        from backend.modules.hook_library.library import seed_global_hooks
+        db = SessionLocal()
+        added = seed_global_hooks(db)
+        db.close()
+        if added:
+            import logging
+            logging.getLogger(__name__).info(f"Seeded {added} global hooks")
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Hook seed skipped: {e}")
     yield
     # Shutdown
     stop_scheduler()
@@ -47,6 +60,10 @@ app.include_router(channels.router,  prefix="/api/channels",  tags=["Channels"])
 app.include_router(jobs.router,      prefix="/api/jobs",      tags=["Jobs"])
 app.include_router(trends.router,    prefix="/api/trends",    tags=["Trends"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
+app.include_router(hooks.router,     prefix="/api/hooks",     tags=["Hook Library"])
+app.include_router(spy.router,       prefix="/api/spy",       tags=["Competitor Spy"])
+app.include_router(bot.router,       prefix="/api/bot",       tags=["Bot"])
+app.include_router(reseller.router,  prefix="/api/reseller",  tags=["Reseller"])
 
 # Serve frontend static files
 frontend_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")

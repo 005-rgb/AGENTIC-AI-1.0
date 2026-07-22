@@ -53,6 +53,10 @@
         <li><a href="#" onclick="showPage('channels')" data-page="channels">📺 Channels</a></li>
         <li><a href="#" onclick="showPage('keys')" data-page="keys">🔑 Gemini Keys</a></li>
         <li><a href="#" onclick="showPage('trends')" data-page="trends">🔥 Trends & Script</a></li>
+        <li><a href="#" onclick="showPage('hooks')" data-page="hooks">🪝 Hook Library</a></li>
+        <li><a href="#" onclick="showPage('spy')" data-page="spy">🕵️ Competitor Spy</a></li>
+        <li><a href="#" onclick="showPage('bot')" data-page="bot">🤖 Bot Setup</a></li>
+        <li id="nav-reseller" style="display:none"><a href="#" onclick="showPage('reseller')" data-page="reseller">🏢 Reseller</a></li>
       </ul>
       <div class="sidebar-footer">
         <span id="nav-user-name" class="user-badge"></span>
@@ -263,6 +267,131 @@
           <div id="key-test-result"></div>
         </div>
         <div id="keys-table"></div>
+      </div>
+
+      <!-- Hook Library -->
+      <div id="page-hooks" class="page" style="display:none">
+        <div class="page-header"><h1>🪝 Viral Hook Library</h1></div>
+        <div class="card">
+          <div class="form-row">
+            <select id="hook-filter-niche" onchange="loadHooks()" style="flex:1">
+              <option value="">Semua Niche</option>
+              <option value="motivasi">💪 Motivasi</option>
+              <option value="edukasi">📚 Edukasi</option>
+              <option value="fakta">⚡ Fakta Unik</option>
+              <option value="humor">😄 Humor</option>
+              <option value="tutorial">🛠️ Tutorial</option>
+              <option value="lifestyle">✨ Lifestyle</option>
+              <option value="finance">💰 Finance</option>
+              <option value="kesehatan">❤️ Kesehatan</option>
+              <option value="teknologi">🤖 Teknologi</option>
+            </select>
+            <select id="hook-sort" onchange="loadHooks()" style="width:200px">
+              <option value="use_count">Paling Sering Dipakai</option>
+              <option value="avg_ctr">CTR Tertinggi</option>
+              <option value="created_at">Terbaru</option>
+            </select>
+          </div>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <div class="card-header"><h3>➕ Tambah Hook Custom</h3></div>
+          <div class="form-row">
+            <select id="new-hook-niche" style="width:180px">
+              <option value="motivasi">motivasi</option>
+              <option value="edukasi">edukasi</option>
+              <option value="fakta">fakta</option>
+              <option value="humor">humor</option>
+              <option value="tutorial">tutorial</option>
+              <option value="lifestyle">lifestyle</option>
+              <option value="finance">finance</option>
+              <option value="kesehatan">kesehatan</option>
+              <option value="teknologi">teknologi</option>
+            </select>
+            <input type="text" id="new-hook-text" placeholder="Teks hook kamu..." style="flex:1"/>
+            <button class="btn btn-primary" onclick="addHook()">Tambah</button>
+          </div>
+        </div>
+        <div id="hooks-list" style="margin-top:16px"></div>
+      </div>
+
+      <!-- Competitor Spy -->
+      <div id="page-spy" class="page" style="display:none">
+        <div class="page-header"><h1>🕵️ Competitor Spy</h1></div>
+        <div class="card">
+          <p style="color:var(--text-muted);margin-bottom:16px">Analisis channel YouTube competitor — pola konten, hook populer, jam upload terbaik, dan rekomendasi strategi.</p>
+          <div class="form-row">
+            <input type="url" id="spy-url" placeholder="https://youtube.com/@channel" style="flex:1"/>
+            <button class="btn btn-primary" onclick="runSpy()">Analisis 🔍</button>
+          </div>
+          <div id="spy-loading" style="display:none;text-align:center;padding:20px;color:var(--text-muted)">⏳ Menganalisis channel... (bisa 30–60 detik)</div>
+        </div>
+        <div id="spy-result" style="margin-top:16px"></div>
+        <div class="card" style="margin-top:24px">
+          <div class="card-header"><h3>Riwayat Analisis</h3></div>
+          <div id="spy-history"></div>
+        </div>
+      </div>
+
+      <!-- Bot Setup -->
+      <div id="page-bot" class="page" style="display:none">
+        <div class="page-header"><h1>🤖 Bot Setup</h1></div>
+        <div id="bot-status-card" class="card" style="margin-bottom:16px"></div>
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-header"><h3>Telegram Bot</h3></div>
+          <p style="color:var(--text-muted);margin-bottom:16px">Hubungkan Telegram untuk kontrol via chat. Dapatkan chat ID dari <a href="https://t.me/userinfobot" target="_blank">@userinfobot</a>.</p>
+          <div class="form-grid">
+            <div class="field"><label>Bot Token</label><input type="text" id="tg-token" placeholder="1234567890:AAF..."/></div>
+            <div class="field"><label>Chat ID</label><input type="text" id="tg-chat-id" placeholder="123456789"/></div>
+          </div>
+          <div style="display:flex;gap:10px;margin-top:12px">
+            <button class="btn btn-primary" onclick="connectTelegram()">🔗 Hubungkan</button>
+            <button class="btn btn-ghost" style="color:#C0392B" onclick="disconnectBot('telegram')">Putuskan</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3>WhatsApp Bot (via Twilio)</h3></div>
+          <p style="color:var(--text-muted);margin-bottom:16px">Kontrol via WhatsApp menggunakan Twilio Sandbox.</p>
+          <div class="form-grid">
+            <div class="field"><label>Nomor WhatsApp</label><input type="text" id="wa-number" placeholder="+6281234567890"/></div>
+          </div>
+          <div style="display:flex;gap:10px;margin-top:12px">
+            <button class="btn btn-primary" onclick="connectWhatsApp()">🔗 Hubungkan</button>
+            <button class="btn btn-ghost" style="color:#C0392B" onclick="disconnectBot('whatsapp')">Putuskan</button>
+          </div>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <div class="card-header"><h3>Perintah Bot</h3></div>
+          <table style="width:100%;font-size:13px"><tbody>
+            <tr><td><code>/start</code></td><td>Selamat datang & panduan</td></tr>
+            <tr><td><code>/status</code></td><td>Ringkasan akun (jobs, keys, channels)</td></tr>
+            <tr><td><code>/jobs</code></td><td>5 job terakhir</td></tr>
+            <tr><td><code>/stats</code></td><td>Statistik hari ini</td></tr>
+            <tr><td><code>/trends [niche]</code></td><td>Topik trending</td></tr>
+            <tr><td><code>/help</code></td><td>Bantuan</td></tr>
+          </tbody></table>
+        </div>
+      </div>
+
+      <!-- Reseller -->
+      <div id="page-reseller" class="page" style="display:none">
+        <div class="page-header">
+          <h1>🏢 Reseller Dashboard</h1>
+          <button class="btn btn-primary" onclick="showCreateSubTenantModal()">+ Buat Sub-Tenant</button>
+        </div>
+        <div id="reseller-stats-cards" class="stats-grid" style="margin-bottom:24px"></div>
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-header"><h3>🎨 Branding Custom</h3></div>
+          <div class="form-grid">
+            <div class="field"><label>Nama Brand</label><input type="text" id="brand-name" placeholder="MyShorts.id"/></div>
+            <div class="field"><label>Logo URL</label><input type="url" id="brand-logo" placeholder="https://..."/></div>
+            <div class="field"><label>Warna Utama</label><input type="color" id="brand-color" value="#FF0000"/></div>
+          </div>
+          <button class="btn btn-primary" style="margin-top:12px" onclick="saveBranding()">Simpan Branding</button>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3>Sub-Tenant</h3></div>
+          <div id="sub-tenants-list"></div>
+        </div>
       </div>
 
       <!-- Trends -->

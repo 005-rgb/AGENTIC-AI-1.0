@@ -59,6 +59,10 @@ function showPage(name) {
   if (name === 'keys') loadKeys();
   if (name === 'trends') {};
   if (name === 'new-job') initWizard();
+  if (name === 'hooks') loadHooks();
+  if (name === 'spy') { loadSpyHistory(); }
+  if (name === 'bot') loadBotStatus();
+  if (name === 'reseller') loadResellerDashboard();
 }
 
 // ── Auth ──────────────────────────────────────────────
@@ -654,6 +658,302 @@ async function generateScript() {
         ${(data.hook_options || []).map((h, i) => `<div style="font-size:13px;padding:4px 0">${i+1}. ${h}</div>`).join('')}
       </div>`;
   } catch (ex) { el.innerHTML = `<div class="alert alert-error">${ex.message}</div>`; }
+}
+
+// ── Hook Library ─────────────────────────────────────
+async function loadHooks() {
+  const niche = document.getElementById('hook-filter-niche').value;
+  const sort = document.getElementById('hook-sort').value;
+  const el = document.getElementById('hooks-list');
+  el.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted)">Memuat hooks...</div>';
+  try {
+    const params = new URLSearchParams({ limit: 50, sort });
+    if (niche) params.append('niche', niche);
+    const data = await api('GET', `/api/hooks?${params}`);
+    const hooks = data.hooks || [];
+    if (!hooks.length) {
+      el.innerHTML = '<div class="empty-state"><div class="empty-icon">🪝</div><p>Belum ada hook tersedia untuk filter ini.</p></div>';
+      return;
+    }
+    el.innerHTML = hooks.map(h => `
+      <div class="card" style="margin-bottom:10px;padding:14px">
+        <div style="display:flex;align-items:flex-start;gap:12px">
+          <div style="flex:1">
+            <span class="badge badge-pending" style="margin-bottom:8px">${h.niche}</span>
+            <div style="font-size:14px;line-height:1.5">${h.hook_text}</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:6px">
+              ${h.avg_ctr ? `CTR: ${h.avg_ctr.toFixed(1)}%  ·  ` : ''}Dipakai: ${h.use_count}x
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;flex-shrink:0">
+            <button class="btn btn-outline btn-sm" onclick="copyHook('${h.hook_text.replace(/'/g,"\\'")}')">📋 Copy</button>
+            ${h.tenant_id ? `<button class="btn btn-ghost btn-sm" style="color:#C0392B" onclick="deleteHook('${h.id}')">Hapus</button>` : ''}
+          </div>
+        </div>
+      </div>`).join('');
+  } catch (ex) { el.innerHTML = `<div class="alert alert-error">${ex.message}</div>`; }
+}
+
+function copyHook(text) {
+  navigator.clipboard.writeText(text).then(() => toast('Hook disalin!', 'success'));
+}
+
+async function addHook() {
+  const niche = document.getElementById('new-hook-niche').value;
+  const text = document.getElementById('new-hook-text').value.trim();
+  if (!text) { toast('Masukkan teks hook', 'error'); return; }
+  try {
+    await api('POST', '/api/hooks', { niche, hook_text: text });
+    document.getElementById('new-hook-text').value = '';
+    toast('Hook ditambahkan!', 'success');
+    loadHooks();
+  } catch (ex) { toast(ex.message, 'error'); }
+}
+
+async function deleteHook(id) {
+  if (!confirm('Hapus hook ini?')) return;
+  try {
+    await api('DELETE', `/api/hooks/${id}`);
+    toast('Hook dihapus', 'success');
+    loadHooks();
+  } catch (ex) { toast(ex.message, 'error'); }
+}
+
+// ── Competitor Spy ────────────────────────────────────
+let spyPollingTimer = null;
+
+async function runSpy() {
+  const url = document.getElementById('spy-url').value.trim();
+  if (!url) { toast('Masukkan URL channel', 'error'); return; }
+  const resultEl = document.getElementById('spy-result');
+  const loadingEl = document.getElementById('spy-loading');
+  resultEl.innerHTML = '';
+  loadingEl.style.display = 'block';
+  try {
+    const r = await api('POST', '/api/spy/analyze', { channel_url: url });
+    pollSpyResult(r.id);
+  } catch (ex) {
+    loadingEl.style.display = 'none';
+    resultEl.innerHTML = `<div class="alert alert-error">${ex.message}</div>`;
+  }
+}
+
+function pollSpyResult(id) {
+  if (spyPollingTimer) clearInterval(spyPollingTimer);
+  spyPollingTimer = setInterval(async () => {
+    try {
+      const r = await api('GET', `/api/spy/analyze/${id}`);
+      const result = r.result || {};
+      if (!result.status || result.status !== 'processing') {
+        clearInterval(spyPollingTimer);
+        document.getElementById('spy-loading').style.display = 'none';
+        renderSpyResult(result);
+        loadSpyHistory();
+      }
+    } catch (ex) {
+      clearInterval(spyPollingTimer);
+      document.getElementById('spy-loading').style.display = 'none';
+    }
+  }, 3000);
+}
+
+function renderSpyResult(result) {
+  const el = document.getElementById('spy-result');
+  if (result.error) {
+    el.innerHTML = `<div class="alert alert-error">Gagal: ${result.error}</div>`;
+    return;
+  }
+  el.innerHTML = `
+    <div class="card">
+      <div class="card-header"><h3>📊 Hasil Analisis: ${result.channel_name || 'Channel'}</h3></div>
+      <div class="stats-grid" style="margin-bottom:16px">
+        <div class="stat-card"><div class="stat-value">${(result.avg_views || 0).toLocaleString('id-ID')}</div><div class="stat-label">Avg Views</div></div>
+        <div class="stat-card blue"><div class="stat-value">${result.posting_frequency || '-'}</div><div class="stat-label">Frekuensi Post</div></div>
+        <div class="stat-card green"><div class="stat-value">${result.videos_analyzed || 0}</div><div class="stat-label">Video Dianalisis</div></div>
+      </div>
+      ${result.top_niches?.length ? `<div style="margin-bottom:16px"><strong>Niche Utama:</strong> ${result.top_niches.map(n=>`<span class="badge badge-pending">${n}</span>`).join(' ')}</div>` : ''}
+      ${result.common_hooks?.length ? `<div style="margin-bottom:16px"><strong>Hook Populer:</strong><ul style="margin-top:6px;padding-left:20px">${result.common_hooks.map(h=>`<li style="font-size:13px;margin:4px 0">${h}</li>`).join('')}</ul></div>` : ''}
+      ${result.best_posting_hours?.length ? `<div style="margin-bottom:16px"><strong>Jam Upload Terbaik:</strong> ${result.best_posting_hours.map(h=>`<span class="badge badge-scheduled">${h}:00</span>`).join(' ')}</div>` : ''}
+      ${result.recommendations?.length ? `<div><strong>💡 Rekomendasi:</strong><ol style="margin-top:8px;padding-left:20px">${result.recommendations.map(r=>`<li style="font-size:13px;margin:6px 0">${r}</li>`).join('')}</ol></div>` : ''}
+    </div>`;
+}
+
+async function loadSpyHistory() {
+  try {
+    const data = await api('GET', '/api/spy/history');
+    const el = document.getElementById('spy-history');
+    if (!el) return;
+    const items = data.history || [];
+    if (!items.length) {
+      el.innerHTML = '<p style="color:var(--text-muted);padding:12px 0">Belum ada riwayat analisis.</p>';
+      return;
+    }
+    el.innerHTML = items.map(a => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">
+        <div>
+          <div style="font-size:13px;font-weight:500">${a.channel_name || a.channel_url}</div>
+          <div style="font-size:12px;color:var(--text-muted)">${fmtDate(a.created_at)}</div>
+        </div>
+        <div style="font-size:12px;color:var(--text-muted)">${a.result?.avg_views ? (a.result.avg_views).toLocaleString('id-ID') + ' avg views' : ''}</div>
+      </div>`).join('');
+  } catch (ex) { /* silent */ }
+}
+
+// ── Bot ───────────────────────────────────────────────
+async function loadBotStatus() {
+  try {
+    const data = await api('GET', '/api/bot/status');
+    const el = document.getElementById('bot-status-card');
+    el.innerHTML = `
+      <div class="form-row" style="flex-wrap:wrap;gap:16px">
+        <div>
+          <strong>Telegram:</strong> ${data.telegram_connected
+            ? `<span class="badge badge-done">✅ Terhubung</span> <code style="font-size:12px">${data.telegram_chat_id}</code>`
+            : '<span class="badge badge-failed">❌ Belum terhubung</span>'}
+        </div>
+        <div>
+          <strong>WhatsApp:</strong> ${data.whatsapp_connected
+            ? `<span class="badge badge-done">✅ Terhubung</span> <code style="font-size:12px">${data.whatsapp_number}</code>`
+            : '<span class="badge badge-failed">❌ Belum terhubung</span>'}
+        </div>
+        <div><strong>Status Bot:</strong> ${data.bot_active ? '<span class="badge badge-done">Aktif</span>' : '<span class="badge badge-pending">Tidak Aktif</span>'}</div>
+      </div>`;
+  } catch (ex) { /* silent */ }
+}
+
+async function connectTelegram() {
+  const token_val = document.getElementById('tg-token').value.trim();
+  const chat_id = document.getElementById('tg-chat-id').value.trim();
+  if (!chat_id) { toast('Masukkan Chat ID Telegram', 'error'); return; }
+  try {
+    await api('POST', '/api/bot/connect/telegram', { bot_token: token_val, chat_id });
+    toast('Telegram terhubung!', 'success');
+    loadBotStatus();
+  } catch (ex) { toast(ex.message, 'error'); }
+}
+
+async function connectWhatsApp() {
+  const number = document.getElementById('wa-number').value.trim();
+  if (!number) { toast('Masukkan nomor WhatsApp', 'error'); return; }
+  try {
+    await api('POST', '/api/bot/connect/whatsapp', {
+      account_sid: '', auth_token: '', from_number: number, whatsapp_number: number
+    });
+    toast('WhatsApp terhubung!', 'success');
+    loadBotStatus();
+  } catch (ex) { toast(ex.message, 'error'); }
+}
+
+async function disconnectBot(platform) {
+  if (!confirm(`Putuskan koneksi ${platform}?`)) return;
+  try {
+    await api('DELETE', `/api/bot/disconnect/${platform}`);
+    toast(`${platform} diputuskan`, 'success');
+    loadBotStatus();
+  } catch (ex) { toast(ex.message, 'error'); }
+}
+
+// ── Reseller ──────────────────────────────────────────
+async function loadResellerDashboard() {
+  try {
+    const [stats, branding] = await Promise.all([
+      api('GET', '/api/reseller/stats'),
+      api('GET', '/api/reseller/branding'),
+    ]);
+
+    const statsEl = document.getElementById('reseller-stats-cards');
+    statsEl.innerHTML = `
+      <div class="stat-card"><div class="stat-value">${stats.total_sub_tenants}</div><div class="stat-label">Sub-Tenant</div></div>
+      <div class="stat-card blue"><div class="stat-value">${stats.total_jobs}</div><div class="stat-label">Total Jobs</div></div>`;
+
+    if (branding.brand_name) document.getElementById('brand-name').value = branding.brand_name;
+    if (branding.brand_logo_url) document.getElementById('brand-logo').value = branding.brand_logo_url;
+    if (branding.brand_color) document.getElementById('brand-color').value = branding.brand_color;
+
+    const listEl = document.getElementById('sub-tenants-list');
+    const subs = stats.sub_tenants || [];
+    if (!subs.length) {
+      listEl.innerHTML = '<div class="empty-state"><div class="empty-icon">👥</div><p>Belum ada sub-tenant. Klik "+ Buat Sub-Tenant" untuk mulai.</p></div>';
+      return;
+    }
+    listEl.innerHTML = `<div class="table-wrap"><table><thead><tr><th>Nama</th><th>Email</th><th>Plan</th><th>Status</th><th>Dibuat</th><th></th></tr></thead><tbody>
+      ${subs.map(s => `<tr>
+        <td>${s.name}</td>
+        <td>${s.email}</td>
+        <td><span class="badge badge-pending">${s.plan}</span></td>
+        <td><span class="badge ${s.is_active ? 'badge-done' : 'badge-failed'}">${s.is_active ? 'Aktif' : 'Nonaktif'}</span></td>
+        <td>${fmtDate(s.created_at)}</td>
+        <td><button class="btn btn-ghost btn-sm" style="color:#C0392B" onclick="deleteSubTenant('${s.id}')">Hapus</button></td>
+      </tr>`).join('')}
+    </tbody></table></div>`;
+  } catch (ex) {
+    if (ex.message.includes('reseller')) {
+      document.querySelector('#page-reseller').innerHTML = `
+        <div class="page-header"><h1>🏢 Reseller</h1></div>
+        <div class="alert alert-error">Fitur Reseller hanya tersedia untuk akun Enterprise. Hubungi admin untuk upgrade.</div>`;
+    } else {
+      toast(ex.message, 'error');
+    }
+  }
+}
+
+async function saveBranding() {
+  const brand_name = document.getElementById('brand-name').value.trim();
+  const brand_logo_url = document.getElementById('brand-logo').value.trim();
+  const brand_color = document.getElementById('brand-color').value;
+  try {
+    await api('PUT', '/api/reseller/branding', { brand_name, brand_logo_url, brand_color });
+    toast('Branding disimpan!', 'success');
+  } catch (ex) { toast(ex.message, 'error'); }
+}
+
+function showCreateSubTenantModal() {
+  document.getElementById('modal-content').innerHTML = `
+    <h3 style="margin-bottom:20px">Buat Sub-Tenant</h3>
+    <div class="field"><label>Nama</label><input type="text" id="sub-name" placeholder="Nama klien"/></div>
+    <div class="field"><label>Email</label><input type="email" id="sub-email" placeholder="email@klien.com"/></div>
+    <div class="field"><label>Password</label><input type="password" id="sub-password" placeholder="Min 8 karakter"/></div>
+    <div class="field"><label>Plan</label>
+      <select id="sub-plan">
+        <option value="free">Free</option>
+        <option value="pro">Pro</option>
+        <option value="enterprise">Enterprise</option>
+      </select>
+    </div>
+    <div id="sub-err" class="alert alert-error" style="display:none"></div>
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <button class="btn btn-primary" onclick="createSubTenant()">Buat</button>
+      <button class="btn btn-ghost" onclick="closeModal()">Batal</button>
+    </div>`;
+  document.getElementById('modal-overlay').style.display = 'flex';
+}
+
+async function createSubTenant() {
+  const err = document.getElementById('sub-err');
+  err.style.display = 'none';
+  try {
+    await api('POST', '/api/reseller/sub-tenants', {
+      name: document.getElementById('sub-name').value,
+      email: document.getElementById('sub-email').value,
+      password: document.getElementById('sub-password').value,
+      plan: document.getElementById('sub-plan').value,
+    });
+    closeModal();
+    toast('Sub-tenant dibuat!', 'success');
+    loadResellerDashboard();
+  } catch (ex) {
+    err.textContent = ex.message;
+    err.style.display = 'block';
+  }
+}
+
+async function deleteSubTenant(id) {
+  if (!confirm('Hapus sub-tenant ini? Semua data mereka akan terhapus.')) return;
+  try {
+    await api('DELETE', `/api/reseller/sub-tenants/${id}`);
+    toast('Sub-tenant dihapus', 'success');
+    loadResellerDashboard();
+  } catch (ex) { toast(ex.message, 'error'); }
 }
 
 // ── Modal ─────────────────────────────────────────────
