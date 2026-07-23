@@ -91,56 +91,14 @@ class PoolManager:
 pool_manager = PoolManager()
 
 
-def generate_with_retry(tenant_id: str, model_name: str, prompt: str, max_retries: int = None):
+def generate_with_retry(tenant_id: str, model_name: str, prompt: str, max_retries: int = None):  # noqa: ARG001
     """
-    Generate content using Gemini with automatic key rotation on 429/quota errors.
-    Tries every key in the pool before giving up.
+    Delegates to multi-provider ai_pool.generate() which handles
+    Gemini → Groq fallback automatically.
+    Kept for backward compatibility with existing callers.
     """
-    pool = pool_manager.get_pool(tenant_id)
-    if not pool or pool.count == 0:
-        raise RuntimeError(f"No Gemini API keys configured for tenant {tenant_id}")
-
-    keys = pool.all_keys()
-    if max_retries is None:
-        max_retries = len(keys)
-
-    last_error = None
-    tried = set()
-
-    for attempt in range(max_retries):
-        key = pool_manager.next_key(tenant_id)
-        if not key or key in tried:
-            # Cycle through all keys once
-            remaining = [k for k in keys if k not in tried]
-            if not remaining:
-                break
-            key = remaining[0]
-
-        tried.add(key)
-        try:
-            genai.configure(api_key=key)
-            model = genai.GenerativeModel(model_name)
-            response = model.generate_content(prompt)
-            return response
-        except Exception as e:
-            err_str = str(e).lower()
-            if "429" in str(e) or "quota" in err_str or "rate" in err_str or "resource_exhausted" in err_str:
-                log.warning(
-                    "Key ...%s got 429/quota on attempt %d/%d, rotating to next key",
-                    key[-6:], attempt + 1, max_retries,
-                )
-                last_error = e
-                # Small backoff before retrying with next key
-                if attempt < max_retries - 1:
-                    time.sleep(0.5)
-                continue
-            # Non-quota errors: re-raise immediately
-            raise
-
-    raise RuntimeError(
-        f"All {len(tried)} Gemini key(s) exhausted quota for tenant {tenant_id}. "
-        f"Last error: {last_error}"
-    )
+    from backend.core.ai_pool import generate as _ai_generate
+    return _ai_generate(tenant_id, prompt)
 
 
 def get_genai_client(tenant_id: str):
@@ -154,13 +112,17 @@ def get_genai_client(tenant_id: str):
 
 
 def load_tenant_keys_from_db(db, tenant_id: str):
-    """Sync active Gemini keys from DB into the in-memory pool."""
+    """Sync active AI keys from DB into all provider pools.
+    Delegates to ai_pool.load_from_db and also keeps legacy gemini-only pool in sync."""
+    from backend.core.ai_pool import load_from_db as _ai_load
+    summary = _ai_load(db, tenant_id)
+    # Also keep legacy pool_manager in sync (for any code that still calls next_key)
     from backend.models.models import GeminiKey
     keys = (
         db.query(GeminiKey)
         .filter(GeminiKey.tenant_id == tenant_id, GeminiKey.is_active == True)
         .all()
     )
-    key_strings = [k.api_key for k in keys]
-    pool_manager.set_pool(tenant_id, key_strings)
-    return key_strings
+    gemini_keys = [k.api_key for k in keys if (getattr(k, "provider", "gemini") or "gemini") == "gemini"]
+    pool_manager.set_pool(tenant_id, gemini_keys)
+    return gemini_keys

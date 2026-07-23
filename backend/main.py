@@ -52,6 +52,7 @@ def _migrate_db():
             ("label",              "VARCHAR DEFAULT ''"),
             ("usage_count",        "INTEGER DEFAULT 0"),
             ("last_used_at",       "DATETIME"),
+            ("provider",           "VARCHAR DEFAULT 'gemini'"),
         ],
         "channels": [
             ("youtube_channel_id", "VARCHAR"),

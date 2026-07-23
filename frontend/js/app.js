@@ -525,63 +525,123 @@ async function deleteChannel(channelId) {
   } catch (ex) { toast(ex.message, 'error'); }
 }
 
-// ── Gemini Keys ───────────────────────────────────────
+// ── AI Keys ───────────────────────────────────────────
+const PROVIDER_COLORS = { gemini: '#4285F4', groq: '#F55036' };
+const PROVIDER_ICONS  = { gemini: '🌐', groq: '⚡' };
+
+function switchKeyTab(tab, btn) {
+  document.getElementById('key-tab-single').style.display = tab === 'single' ? '' : 'none';
+  document.getElementById('key-tab-bulk').style.display   = tab === 'bulk'   ? '' : 'none';
+  document.querySelectorAll('#page-keys .tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
 async function loadKeys() {
   try {
     const data = await api('GET', '/api/keys');
-    const banner = document.getElementById('pool-banner');
-    const pool = data.pool_size || 0;
+    const pool  = data.pool_size || 0;
     const total = data.total || 0;
+    const byProv = data.pool_by_provider || {};
+
+    // Banner
+    const banner = document.getElementById('pool-banner');
     banner.className = `pool-banner alert ${pool === 0 ? 'alert-error' : 'alert-success'}`;
     banner.textContent = pool === 0
       ? '⚠️ Pool kosong! Tambahkan minimal 1 API key aktif untuk mulai memproses.'
-      : `✅ Pool aktif: ${pool} dari ${total} key siap digunakan`;
+      : `✅ Pool aktif: ${pool} dari ${total} key — Gemini: ${byProv.gemini||0} | Groq: ${byProv.groq||0}`;
 
+    // Provider badges
+    for (const prov of ['gemini','groq']) {
+      const cnt = byProv[prov] || 0;
+      const el  = document.getElementById(`prov-count-${prov}`);
+      if (el) el.textContent = `${cnt} key aktif`;
+      const badge = document.getElementById(`badge-${prov}`);
+      if (badge) badge.style.opacity = cnt > 0 ? '1' : '0.45';
+    }
+
+    // Table
     const el = document.getElementById('keys-table');
     if (!data.keys.length) {
-      el.innerHTML = `<div class="empty-state"><div class="empty-icon">🔑</div><p>Belum ada API key. Tambahkan Gemini API key untuk mengaktifkan fitur AI.</p></div>`;
+      el.innerHTML = `<div class="empty-state"><div class="empty-icon">🔑</div><p>Belum ada API key. Tambahkan Gemini atau Groq API key untuk mengaktifkan fitur AI.</p></div>`;
       return;
     }
-    el.innerHTML = `<div class="table-wrap"><table><thead><tr><th>Label</th><th>API Key</th><th>Status</th><th>Penggunaan</th><th>Terakhir Dipakai</th><th></th></tr></thead><tbody>
-      ${data.keys.map(k => `<tr class="${k.is_active ? '' : 'key-inactive'}">
-        <td>${k.label || '-'}</td>
-        <td><code style="font-size:12px">${k.api_key}</code></td>
-        <td><span class="badge ${k.is_active ? 'badge-done' : 'badge-failed'}">${k.is_active ? 'Aktif' : 'Nonaktif'}</span></td>
-        <td>${k.usage_count || 0}x</td>
-        <td>${k.last_used_at ? fmtDate(k.last_used_at) : '-'}</td>
-        <td style="display:flex;gap:6px">
-          <button class="btn btn-ghost btn-sm" onclick="toggleKey('${k.id}')">${k.is_active ? 'Nonaktifkan' : 'Aktifkan'}</button>
-          <button class="btn btn-ghost btn-sm" style="color:#C0392B" onclick="deleteKey('${k.id}')">Hapus</button>
-        </td>
-      </tr>`).join('')}
-    </tbody></table></div>`;
+    el.innerHTML = `<div class="table-wrap"><table>
+      <thead><tr><th>Provider</th><th>Label</th><th>API Key</th><th>Status</th><th>Penggunaan</th><th>Terakhir Dipakai</th><th></th></tr></thead>
+      <tbody>${data.keys.map(k => {
+        const prov = k.provider || 'gemini';
+        const provColor = PROVIDER_COLORS[prov] || '#888';
+        const provIcon  = PROVIDER_ICONS[prov]  || '🔑';
+        return `<tr class="${k.is_active ? '' : 'key-inactive'}">
+          <td><span style="display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:12px;font-size:12px;font-weight:600;background:${provColor}22;color:${provColor}">${provIcon} ${prov.toUpperCase()}</span></td>
+          <td>${k.label || '-'}</td>
+          <td><code style="font-size:12px">${k.api_key}</code></td>
+          <td><span class="badge ${k.is_active ? 'badge-done' : 'badge-failed'}">${k.is_active ? 'Aktif' : 'Nonaktif'}</span></td>
+          <td>${k.usage_count || 0}x</td>
+          <td>${k.last_used_at ? fmtDate(k.last_used_at) : '-'}</td>
+          <td style="display:flex;gap:6px">
+            <button class="btn btn-ghost btn-sm" onclick="toggleKey('${k.id}')">${k.is_active ? 'Nonaktifkan' : 'Aktifkan'}</button>
+            <button class="btn btn-ghost btn-sm" style="color:#C0392B" onclick="deleteKey('${k.id}')">Hapus</button>
+          </td>
+        </tr>`;
+      }).join('')}</tbody></table></div>`;
   } catch (ex) { toast(ex.message, 'error'); }
 }
 
 async function addKey() {
-  const keyVal = document.getElementById('new-key-value').value.trim();
-  const label = document.getElementById('new-key-label').value.trim();
+  const keyVal   = document.getElementById('new-key-value').value.trim();
+  const label    = document.getElementById('new-key-label').value.trim();
+  const provider = document.getElementById('new-key-provider').value;
   if (!keyVal) { toast('Masukkan API key', 'error'); return; }
   try {
-    await api('POST', '/api/keys', { api_key: keyVal, label });
+    await api('POST', '/api/keys', { api_key: keyVal, label, provider });
     document.getElementById('new-key-value').value = '';
     document.getElementById('new-key-label').value = '';
-    toast('Key ditambahkan!', 'success');
+    toast(`Key ${provider.toUpperCase()} ditambahkan!`, 'success');
     loadKeys();
   } catch (ex) { toast(ex.message, 'error'); }
 }
 
 async function testNewKey() {
-  const keyVal = document.getElementById('new-key-value').value.trim();
+  const keyVal   = document.getElementById('new-key-value').value.trim();
+  const provider = document.getElementById('new-key-provider').value;
   if (!keyVal) { toast('Masukkan API key terlebih dahulu', 'error'); return; }
   const el = document.getElementById('key-test-result');
-  el.innerHTML = '<span style="color:var(--text-muted);font-size:13px">Testing...</span>';
+  el.innerHTML = `<span style="color:var(--text-muted);font-size:13px">⏳ Testing ${provider.toUpperCase()} key...</span>`;
   try {
-    const r = await api('POST', '/api/keys/test', { api_key: keyVal });
+    const r = await api('POST', '/api/keys/test', { api_key: keyVal, provider });
     el.innerHTML = r.valid
-      ? `<div class="alert alert-success">✅ Key valid! Model: ${r.model}</div>`
+      ? `<div class="alert alert-success">✅ Key valid! Provider: ${r.provider?.toUpperCase()} — Model: ${r.model}</div>`
       : `<div class="alert alert-error">❌ Key tidak valid: ${r.error}</div>`;
   } catch (ex) { el.innerHTML = `<div class="alert alert-error">Error: ${ex.message}</div>`; }
+}
+
+async function importBulkKeys() {
+  const raw      = document.getElementById('bulk-keys-text').value.trim();
+  const provider = document.getElementById('bulk-provider').value;
+  const result   = document.getElementById('bulk-result');
+  if (!raw) { toast('Textarea kosong', 'error'); return; }
+
+  // Parse lines: support "label:apikey" or just "apikey"
+  const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+  const keys  = lines.map(line => {
+    const colonIdx = line.indexOf(':');
+    // Detect if first part looks like a label (short, no spaces) vs part of a key
+    if (colonIdx > 0 && colonIdx < 30 && !line.slice(0, colonIdx).includes(' ')) {
+      return { label: line.slice(0, colonIdx), api_key: line.slice(colonIdx + 1).trim(), provider };
+    }
+    return { label: '', api_key: line, provider };
+  });
+
+  result.textContent = `⏳ Mengimport ${keys.length} key...`;
+  try {
+    const r = await api('POST', '/api/keys/bulk', { keys });
+    result.innerHTML = `<span style="color:#27AE60">✅ Berhasil: ${r.added}</span> | Duplikat dilewati: ${r.skipped} | Error: ${r.errors?.length || 0}`;
+    if (r.added > 0) {
+      document.getElementById('bulk-keys-text').value = '';
+      loadKeys();
+      toast(`${r.added} key berhasil diimport!`, 'success');
+    }
+  } catch (ex) { result.textContent = `❌ ${ex.message}`; toast(ex.message, 'error'); }
 }
 
 async function toggleKey(keyId) {

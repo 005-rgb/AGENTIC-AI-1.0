@@ -45,6 +45,7 @@ class GeminiKey(Base):
     tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
     api_key = Column(String, nullable=False)
     label = Column(String, default="")
+    provider = Column(String, default="gemini")   # gemini | groq
     is_active = Column(Boolean, default=True)
     usage_count = Column(Integer, default=0)
     last_used_at = Column(DateTime, nullable=True)

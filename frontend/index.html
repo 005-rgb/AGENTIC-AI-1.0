@@ -51,7 +51,7 @@
         <li><a href="#" onclick="showPage('jobs')" data-page="jobs">🎬 Video Jobs</a></li>
         <li><a href="#" onclick="showPage('new-job')" data-page="new-job">➕ Buat Job</a></li>
         <li><a href="#" onclick="showPage('channels')" data-page="channels">📺 Channels</a></li>
-        <li><a href="#" onclick="showPage('keys')" data-page="keys">🔑 Gemini Keys</a></li>
+        <li><a href="#" onclick="showPage('keys')" data-page="keys">🔑 AI Keys</a></li>
         <li><a href="#" onclick="showPage('trends')" data-page="trends">🔥 Trends & Script</a></li>
         <li><a href="#" onclick="showPage('hooks')" data-page="hooks">🪝 Hook Library</a></li>
         <li><a href="#" onclick="showPage('spy')" data-page="spy">🕵️ Competitor Spy</a></li>
@@ -250,22 +250,68 @@
         <div id="channels-list"></div>
       </div>
 
-      <!-- Gemini Keys -->
+      <!-- AI Keys -->
       <div id="page-keys" class="page" style="display:none">
-        <div class="page-header"><h1>Gemini API Keys</h1></div>
+        <div class="page-header"><h1>🔑 AI API Keys</h1></div>
         <div class="pool-banner" id="pool-banner"></div>
-        <div class="card">
-          <div class="card-header">
-            <h3>Tambah API Key</h3>
+
+        <!-- Provider info strip -->
+        <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+          <div class="provider-badge provider-gemini" id="badge-gemini">
+            <span class="prov-dot"></span><span class="prov-name">Gemini</span>
+            <span class="prov-count" id="prov-count-gemini">0 key</span>
+            <span class="prov-status" id="prov-status-gemini">Primary</span>
           </div>
-          <div class="add-key-form">
-            <input type="text" id="new-key-value" placeholder="AIzaSy..." style="flex:1"/>
-            <input type="text" id="new-key-label" placeholder="Label (opsional)" style="width:200px"/>
-            <button class="btn btn-primary" onclick="addKey()">Tambah</button>
-            <button class="btn btn-outline" onclick="testNewKey()">Test</button>
+          <div class="provider-badge provider-groq" id="badge-groq">
+            <span class="prov-dot"></span><span class="prov-name">Groq (LLaMA)</span>
+            <span class="prov-count" id="prov-count-groq">0 key</span>
+            <span class="prov-status" id="prov-status-groq">Fallback</span>
           </div>
-          <div id="key-test-result"></div>
         </div>
+
+        <!-- Tabs: Tambah 1 | Import Bulk -->
+        <div class="card" style="margin-bottom:16px">
+          <div class="tab-bar" style="margin-bottom:16px">
+            <button class="tab-btn active" onclick="switchKeyTab('single',this)" id="tab-single">Tambah Satu Key</button>
+            <button class="tab-btn" onclick="switchKeyTab('bulk',this)" id="tab-bulk">📥 Import Banyak Key</button>
+          </div>
+
+          <!-- Single key form -->
+          <div id="key-tab-single">
+            <div class="add-key-form">
+              <select id="new-key-provider" style="width:160px">
+                <option value="gemini">Gemini</option>
+                <option value="groq">Groq</option>
+              </select>
+              <input type="text" id="new-key-value" placeholder="Paste API key..." style="flex:1"/>
+              <input type="text" id="new-key-label" placeholder="Label (opsional)" style="width:160px"/>
+              <button class="btn btn-primary" onclick="addKey()">Tambah</button>
+              <button class="btn btn-outline" onclick="testNewKey()">Test</button>
+            </div>
+            <div id="key-test-result" style="margin-top:8px"></div>
+          </div>
+
+          <!-- Bulk import form -->
+          <div id="key-tab-bulk" style="display:none">
+            <div style="margin-bottom:12px;color:var(--text-muted);font-size:14px">
+              Tempel banyak key sekaligus — <b>satu key per baris</b>. Format opsional: <code>label:apikey</code>
+            </div>
+            <div style="display:flex;gap:10px;margin-bottom:10px;align-items:center">
+              <label style="font-weight:600;white-space:nowrap">Provider:</label>
+              <select id="bulk-provider" style="width:160px">
+                <option value="gemini">Gemini</option>
+                <option value="groq">Groq</option>
+              </select>
+              <span style="color:var(--text-muted);font-size:13px">(berlaku untuk semua key di bawah)</span>
+            </div>
+            <textarea id="bulk-keys-text" rows="10" placeholder="AIzaSyXxx...&#10;AIzaSyYyy...&#10;label3:gsk_Zzz...&#10;AIzaSyAaa..." style="width:100%;font-family:monospace;font-size:13px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);resize:vertical"></textarea>
+            <div style="display:flex;gap:10px;margin-top:10px;align-items:center">
+              <button class="btn btn-primary" onclick="importBulkKeys()">📥 Import Semua</button>
+              <span id="bulk-result" style="font-size:13px;color:var(--text-muted)"></span>
+            </div>
+          </div>
+        </div>
+
         <div id="keys-table"></div>
       </div>
 
