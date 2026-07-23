@@ -10,13 +10,22 @@ Platform otomasi produksi dan distribusi YouTube Shorts berbasis AI — multi-te
 - **Frontend**: Vanilla SPA (HTML/CSS/JS)
 - **Scheduler**: APScheduler BackgroundScheduler
 
-## Cara Menjalankan (Replit / Lokal)
+## Cara Menjalankan di Replit
+
+Workflow **Start application** sudah dikonfigurasi. Cukup klik tombol Run.
 
 ```bash
 uvicorn backend.main:app --host 0.0.0.0 --port 5000 --reload
 ```
 
-Akses: http://localhost:5000
+Akses: port 5000 (mapped ke port 80 via Replit proxy)
+
+### Setup awal di Replit
+1. `SESSION_SECRET` sudah tersedia sebagai Replit Secret — tidak perlu `.env`
+2. Dependencies diinstal otomatis via `pip install -r requirements.txt`
+3. Database SQLite (`shortsdb.sqlite`) dibuat otomatis saat startup
+4. Untuk fitur AI: tambahkan Gemini API key via UI → Settings → Gemini Keys
+5. Untuk upload YouTube: set `YOUTUBE_CLIENT_ID` dan `YOUTUBE_CLIENT_SECRET` sebagai Replit Secrets
 
 ## Cara Menjalankan di Laragon (Windows)
 

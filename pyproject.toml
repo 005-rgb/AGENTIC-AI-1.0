@@ -1,24 +1,27 @@
 [project]
-name = "repl-nix-workspace"
-version = "0.1.0"
-description = "Add your description here"
-requires-python = ">=3.13"
+name = "youtube-shorts-factory"
+version = "1.0.0"
+description = "YouTube Shorts Factory — AI-powered SaaS platform for automated Shorts production and distribution"
+requires-python = ">=3.12"
 dependencies = [
-    "aiofiles>=25.1.0",
-    "alembic>=1.18.5",
-    "apscheduler>=3.11.3",
-    "bcrypt>=5.0.0",
-    "fastapi>=0.139.2",
-    "google-generativeai>=0.8.6",
-    "httpx>=0.28.1",
-    "moviepy>=2.2.1",
-    "pillow>=11.3.0",
-    "pydantic>=2.13.4",
-    "pydantic-settings>=2.14.2",
-    "python-dotenv>=1.2.2",
-    "python-jose[cryptography]>=3.5.0",
-    "python-multipart>=0.0.32",
-    "sqlalchemy>=2.0.51",
-    "uvicorn[standard]>=0.51.0",
-    "yt-dlp>=2026.7.4",
+    "aiofiles>=23.2.1",
+    "alembic>=1.13.0",
+    "apscheduler>=3.10.0",
+    "bcrypt>=4.0.0",
+    "fastapi>=0.111.0",
+    "google-generativeai>=0.7.0",
+    "gtts>=2.5.0",
+    "httpx>=0.27.0",
+    "moviepy>=1.0.3",
+    "pillow>=10.0.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "pymysql>=1.1.0",
+    "python-dotenv>=1.0.0",
+    "python-jose[cryptography]>=3.3.0",
+    "python-multipart>=0.0.9",
+    "requests>=2.31.0",
+    "sqlalchemy>=2.0.0",
+    "uvicorn[standard]>=0.30.0",
+    "yt-dlp>=2024.1.0",
 ]
