@@ -1,47 +1,46 @@
 """
-MultiPlatformExporter — export & upload video ke berbagai platform.
+MultiPlatformExporter — re-encode + upload video ke berbagai platform.
 Phase 3: TikTok & Meta APIs diimplementasi penuh.
-Saat ini: YouTube sudah live, TikTok/IG/FB returning stub (API keys belum dikonfigurasi).
 """
-import os
 import logging
+import os
 import subprocess
 from typing import Optional
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 PLATFORM_SPECS = {
     "youtube": {
         "resolution": "1080x1920",
         "max_duration": 60,
-        "aspect": "9:16",
-        "format": "mp4",
         "vcodec": "libx264",
         "acodec": "aac",
+        "bitrate_v": "4M",
+        "bitrate_a": "192k",
     },
     "tiktok": {
         "resolution": "1080x1920",
         "max_duration": 60,
-        "aspect": "9:16",
-        "format": "mp4",
         "vcodec": "libx264",
         "acodec": "aac",
+        "bitrate_v": "4M",
+        "bitrate_a": "192k",
     },
     "instagram": {
         "resolution": "1080x1920",
         "max_duration": 90,
-        "aspect": "9:16",
-        "format": "mp4",
         "vcodec": "libx264",
         "acodec": "aac",
+        "bitrate_v": "4M",
+        "bitrate_a": "192k",
     },
     "facebook": {
         "resolution": "1080x1920",
         "max_duration": 60,
-        "aspect": "9:16",
-        "format": "mp4",
         "vcodec": "libx264",
         "acodec": "aac",
+        "bitrate_v": "4M",
+        "bitrate_a": "192k",
     },
 }
 
@@ -52,9 +51,9 @@ class MultiPlatformExporter:
         self.output_base = output_base
 
     def export_for_platform(self, source_path: str, platform: str) -> Optional[str]:
-        """Re-encode video for specific platform spec."""
+        """Re-encode video sesuai spec platform."""
         if platform not in PLATFORM_SPECS:
-            logger.warning(f"Unknown platform: {platform}")
+            log.warning(f"Unknown platform: {platform}")
             return None
 
         spec = PLATFORM_SPECS[platform]
@@ -64,75 +63,104 @@ class MultiPlatformExporter:
         filename = os.path.basename(source_path)
         output_path = os.path.join(platform_dir, filename)
 
-        # If source is already correct spec, just copy
         w, h = spec["resolution"].split("x")
         cmd = [
             "ffmpeg", "-y",
             "-i", source_path,
-            "-vf", f"scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2",
+            "-vf", f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
+                   f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:black",
             "-t", str(spec["max_duration"]),
             "-c:v", spec["vcodec"],
             "-c:a", spec["acodec"],
-            "-b:v", "4M",
-            "-b:a", "192k",
+            "-b:v", spec["bitrate_v"],
+            "-b:a", spec["bitrate_a"],
             "-movflags", "+faststart",
+            "-pix_fmt", "yuv420p",
             output_path,
         ]
 
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
             if result.returncode == 0:
-                logger.info(f"Exported {platform}: {output_path}")
+                log.info(f"Exported {platform}: {output_path}")
                 return output_path
             else:
-                logger.error(f"FFmpeg error for {platform}: {result.stderr[-500:]}")
+                log.error(f"FFmpeg error for {platform}: {result.stderr[-500:]}")
                 return None
         except Exception as e:
-            logger.error(f"Export error for {platform}: {e}")
+            log.error(f"Export error for {platform}: {e}")
             return None
 
     def export_all(self, source_path: str, platforms: list) -> dict:
-        """Export video for all requested platforms."""
+        """Export + return path per platform."""
         results = {}
         for platform in platforms:
             if platform == "youtube":
-                # YouTube uses the main output directly
                 results["youtube"] = source_path
             else:
                 path = self.export_for_platform(source_path, platform)
                 results[platform] = path
         return results
 
-    def upload_tiktok(self, video_path: str, title: str, description: str = "") -> Optional[str]:
-        """Upload to TikTok via Content Posting API — requires TIKTOK_CLIENT_KEY."""
-        tiktok_key = os.getenv("TIKTOK_CLIENT_KEY")
-        if not tiktok_key:
-            logger.warning("TIKTOK_CLIENT_KEY not configured — skipping TikTok upload")
+    def upload_tiktok(
+        self,
+        video_path: str,
+        title: str,
+        description: str = "",
+        access_token: str = "",
+    ) -> Optional[str]:
+        """Upload ke TikTok via Content Posting API v2."""
+        if not access_token:
+            access_token = os.getenv("TIKTOK_ACCESS_TOKEN", "")
+        if not access_token:
+            log.warning("TikTok access_token tidak tersedia — skip TikTok upload")
             return None
 
-        # TODO: Implement TikTok Content Posting API (Phase 3)
-        # Requires OAuth2 flow per-user + file upload
-        logger.info("TikTok upload: API integration pending (Phase 3)")
-        return None
-
-    def upload_instagram_reels(self, video_path: str, caption: str = "") -> Optional[str]:
-        """Upload Instagram Reels via Meta Graph API — requires META_APP_ID."""
-        meta_app_id = os.getenv("META_APP_ID")
-        if not meta_app_id:
-            logger.warning("META_APP_ID not configured — skipping Instagram upload")
+        try:
+            from backend.modules.tiktok.uploader import upload_video_to_tiktok
+            return upload_video_to_tiktok(access_token, video_path, title, description)
+        except Exception as e:
+            log.error(f"TikTok upload error: {e}")
             return None
 
-        # TODO: Implement Meta Graph API Reels upload (Phase 3)
-        logger.info("Instagram Reels upload: API integration pending (Phase 3)")
-        return None
-
-    def upload_facebook_reels(self, video_path: str, caption: str = "") -> Optional[str]:
-        """Upload Facebook Reels via Meta Graph API — requires META_APP_ID."""
-        meta_app_id = os.getenv("META_APP_ID")
-        if not meta_app_id:
-            logger.warning("META_APP_ID not configured — skipping Facebook upload")
+    def upload_instagram_reels(
+        self,
+        video_path: str,
+        caption: str = "",
+        access_token: str = "",
+        ig_user_id: str = "",
+        public_video_url: Optional[str] = None,
+    ) -> Optional[str]:
+        """Upload Instagram Reels via Meta Graph API."""
+        if not access_token or not ig_user_id:
+            log.warning("Meta access_token/ig_user_id tidak tersedia — skip Instagram upload")
             return None
 
-        # TODO: Implement Meta Graph API Facebook Reels upload (Phase 3)
-        logger.info("Facebook Reels upload: API integration pending (Phase 3)")
-        return None
+        try:
+            from backend.modules.meta.uploader import upload_instagram_reels
+            return upload_instagram_reels(
+                access_token, ig_user_id, video_path, caption, public_video_url
+            )
+        except Exception as e:
+            log.error(f"Instagram upload error: {e}")
+            return None
+
+    def upload_facebook_reels(
+        self,
+        video_path: str,
+        description: str = "",
+        title: str = "",
+        access_token: str = "",
+        page_id: str = "",
+    ) -> Optional[str]:
+        """Upload Facebook Reels via Meta Graph API."""
+        if not access_token or not page_id:
+            log.warning("Meta access_token/page_id tidak tersedia — skip Facebook upload")
+            return None
+
+        try:
+            from backend.modules.meta.uploader import upload_facebook_reels
+            return upload_facebook_reels(access_token, page_id, video_path, description, title)
+        except Exception as e:
+            log.error(f"Facebook upload error: {e}")
+            return None

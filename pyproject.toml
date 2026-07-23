@@ -1,6 +1,6 @@
 [project]
 name = "youtube-shorts-factory"
-version = "1.0.0"
+version = "2.0.0"
 description = "YouTube Shorts Factory — AI-powered SaaS platform for automated Shorts production and distribution"
 requires-python = ">=3.12"
 dependencies = [
@@ -24,4 +24,5 @@ dependencies = [
     "sqlalchemy>=2.0.0",
     "uvicorn[standard]>=0.30.0",
     "yt-dlp>=2024.1.0",
+    "cryptography>=42.0.0",
 ]

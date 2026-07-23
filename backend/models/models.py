@@ -60,10 +60,22 @@ class Channel(Base):
     tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
     channel_name = Column(String, nullable=False)
     niche = Column(String, nullable=False)
-    youtube_credentials = Column(JSON, nullable=True)
+
+    # YouTube (credentials disimpan terenkripsi jika FERNET_KEY di-set)
+    youtube_credentials = Column(Text, nullable=True)   # encrypted JSON string
     youtube_channel_id = Column(String, nullable=True)
     subscriber_count = Column(Integer, default=0)
-    best_upload_hours = Column(JSON, nullable=True)   # [7, 12, 19]
+    best_upload_hours = Column(JSON, nullable=True)     # [7, 12, 19]
+
+    # TikTok — Phase 3
+    tiktok_credentials = Column(Text, nullable=True)    # encrypted JSON: {access_token, open_id, refresh_token, expires_at}
+    tiktok_open_id = Column(String, nullable=True)
+
+    # Meta (Instagram + Facebook) — Phase 3
+    meta_credentials = Column(Text, nullable=True)      # encrypted JSON: {access_token, page_id, ig_user_id, expires_at}
+    meta_page_id = Column(String, nullable=True)
+    meta_ig_user_id = Column(String, nullable=True)
+
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -94,8 +106,8 @@ class VideoJob(Base):
     add_music = Column(Boolean, default=False)
     hook_text = Column(String, nullable=True)
 
-    # Multi-platform
-    platforms = Column(JSON, default=lambda: ["youtube"])  # ["youtube","tiktok","instagram","facebook"]
+    # Multi-platform: daftar platform target
+    platforms = Column(JSON, default=lambda: ["youtube"])
 
     # A/B Test
     ab_test_active = Column(Boolean, default=False)
@@ -107,7 +119,8 @@ class VideoJob(Base):
     thumbnail_filename = Column(String, nullable=True)
 
     # Status
-    status = Column(String, default="pending")     # pending | processing | done | failed | scheduled | uploaded
+    status = Column(String, default="pending")
+    # pending | processing | done | failed | scheduled | uploaded
     error_message = Column(Text, nullable=True)
     progress = Column(Float, default=0.0)
 
@@ -115,10 +128,12 @@ class VideoJob(Base):
     scheduled_at = Column(DateTime, nullable=True)
     uploaded_at = Column(DateTime, nullable=True)
 
-    # Upload IDs
+    # Upload IDs per platform
     youtube_video_id = Column(String, nullable=True)
+    youtube_video_id_b = Column(String, nullable=True)   # A/B variant B
     tiktok_video_id = Column(String, nullable=True)
     instagram_media_id = Column(String, nullable=True)
+    facebook_video_id = Column(String, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -137,7 +152,7 @@ class HookLibrary(Base):
     hook_text = Column(Text, nullable=False)
     avg_ctr = Column(Float, nullable=True)
     use_count = Column(Integer, default=0)
-    is_approved = Column(Boolean, default=False)   # global hooks need approval; tenant hooks always true
+    is_approved = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     tenant = relationship("Tenant", back_populates="hooks")
@@ -148,7 +163,7 @@ class AbTestResult(Base):
 
     id = Column(String, primary_key=True, default=gen_uuid)
     job_id = Column(String, ForeignKey("video_jobs.id"), nullable=False)
-    variant = Column(String, nullable=False)        # "a" | "b"
+    variant = Column(String, nullable=False)         # "a" | "b"
     youtube_video_id = Column(String, nullable=False)
     views_48h = Column(Integer, default=0)
     ctr_48h = Column(Float, nullable=True)
@@ -163,9 +178,9 @@ class BotSession(Base):
 
     id = Column(String, primary_key=True, default=gen_uuid)
     tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
-    platform = Column(String, nullable=False)       # telegram | whatsapp
+    platform = Column(String, nullable=False)        # telegram | whatsapp
     chat_id = Column(String, nullable=False)
-    state = Column(String, nullable=True)           # FSM state
+    state = Column(String, nullable=True)            # FSM state
     context = Column(JSON, default=dict)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -179,5 +194,5 @@ class CompetitorAnalysis(Base):
     tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
     channel_url = Column(String, nullable=False)
     channel_name = Column(String, nullable=True)
-    result = Column(JSON, nullable=True)            # full analysis JSON
+    result = Column(JSON, nullable=True)             # full analysis JSON
     created_at = Column(DateTime, default=datetime.utcnow)

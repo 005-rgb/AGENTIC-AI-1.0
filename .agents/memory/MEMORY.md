@@ -1,0 +1,3 @@
+- [SQLite Migration Pattern](sqlite-migration.md) — kolom baru harus di-ALTER lewat _migrate_db() di main.py; create_all tidak alter tabel existing
+- [Credentials Encryption](credentials-encryption.md) — Fernet via encryption.py; fallback plain JSON jika FERNET_KEY tidak di-set; backward compatible
+- [Plan Limits Architecture](plan-limits.md) — free/pro/enterprise enforced via plan_limits.py; cek di API layer bukan middleware
