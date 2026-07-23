@@ -85,9 +85,14 @@ Berikan analisis dalam format JSON:
 Hanya balas dengan JSON, tidak ada teks lain."""
 
         try:
-            # self.client is the pre-configured genai module from get_genai_client()
-            model = self.client.GenerativeModel("gemini-2.0-flash")
-            response = model.generate_content(prompt)
+            from backend.core.gemini_pool import generate_with_retry
+            tenant_id = getattr(self, "tenant_id", None)
+            if tenant_id:
+                response = generate_with_retry(tenant_id, "gemini-2.0-flash", prompt)
+            else:
+                # legacy: use pre-configured client
+                model = self.client.GenerativeModel("gemini-2.0-flash")
+                response = model.generate_content(prompt)
             text = response.text.strip()
             if text.startswith("```"):
                 text = text.split("```")[1]

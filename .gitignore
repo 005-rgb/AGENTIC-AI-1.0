@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+.venv/
+venv/
+
+# Database
+*.sqlite
+*.db
+
+# Storage (user uploads, generated videos, etc.)
+storage/
+
+# Uploaded assets (may contain sensitive pasted content)
+attached_assets/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db

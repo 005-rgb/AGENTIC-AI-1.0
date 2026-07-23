@@ -1,14 +1,19 @@
 """
-Per-tenant Gemini API key pool with round-robin rotation.
+Per-tenant Gemini API key pool with round-robin rotation and 429-retry.
 Each tenant has an isolated pool derived from their stored GeminiKey records.
 """
+import logging
 import threading
+import time
 from datetime import datetime
 from typing import Optional
+
 try:
     import google.generativeai as genai   # legacy SDK still works
 except ImportError:
     genai = None  # type: ignore
+
+log = logging.getLogger(__name__)
 
 
 class TenantKeyPool:
@@ -26,6 +31,10 @@ class TenantKeyPool:
             key = self._keys[self._index % len(self._keys)]
             self._index += 1
         return key
+
+    def all_keys(self) -> list[str]:
+        with self._lock:
+            return list(self._keys)
 
     def add_key(self, key: str):
         with self._lock:
@@ -82,8 +91,61 @@ class PoolManager:
 pool_manager = PoolManager()
 
 
+def generate_with_retry(tenant_id: str, model_name: str, prompt: str, max_retries: int = None):
+    """
+    Generate content using Gemini with automatic key rotation on 429/quota errors.
+    Tries every key in the pool before giving up.
+    """
+    pool = pool_manager.get_pool(tenant_id)
+    if not pool or pool.count == 0:
+        raise RuntimeError(f"No Gemini API keys configured for tenant {tenant_id}")
+
+    keys = pool.all_keys()
+    if max_retries is None:
+        max_retries = len(keys)
+
+    last_error = None
+    tried = set()
+
+    for attempt in range(max_retries):
+        key = pool_manager.next_key(tenant_id)
+        if not key or key in tried:
+            # Cycle through all keys once
+            remaining = [k for k in keys if k not in tried]
+            if not remaining:
+                break
+            key = remaining[0]
+
+        tried.add(key)
+        try:
+            genai.configure(api_key=key)
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content(prompt)
+            return response
+        except Exception as e:
+            err_str = str(e).lower()
+            if "429" in str(e) or "quota" in err_str or "rate" in err_str or "resource_exhausted" in err_str:
+                log.warning(
+                    "Key ...%s got 429/quota on attempt %d/%d, rotating to next key",
+                    key[-6:], attempt + 1, max_retries,
+                )
+                last_error = e
+                # Small backoff before retrying with next key
+                if attempt < max_retries - 1:
+                    time.sleep(0.5)
+                continue
+            # Non-quota errors: re-raise immediately
+            raise
+
+    raise RuntimeError(
+        f"All {len(tried)} Gemini key(s) exhausted quota for tenant {tenant_id}. "
+        f"Last error: {last_error}"
+    )
+
+
 def get_genai_client(tenant_id: str):
-    """Return a configured genai module using the next key for this tenant."""
+    """Return a configured genai module using the next key for this tenant.
+    Kept for backward compatibility — prefer generate_with_retry for new code."""
     key = pool_manager.next_key(tenant_id)
     if not key:
         raise RuntimeError(f"No Gemini API keys configured for tenant {tenant_id}")

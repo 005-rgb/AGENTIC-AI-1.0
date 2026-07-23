@@ -112,9 +112,8 @@ class TextToShortsGenerator:
             topic=topic,
             niche=niche,
         )
-        genai = get_genai_client(tenant_id)
-        model = genai.GenerativeModel("gemini-2.0-flash")
-        response = model.generate_content(prompt)
+        from backend.core.gemini_pool import generate_with_retry
+        response = generate_with_retry(tenant_id, "gemini-2.0-flash", prompt)
         raw = response.text.strip()
 
         match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL)
@@ -139,11 +138,10 @@ class TextToShortsGenerator:
             }
 
     def _create_slide_image(self, slide: dict, out_path: str, bg_style: str, accent: str):
-        """Create a 1080x1920 slide image using Pillow."""
+        """Create a 1080x1920 slide image using Pillow — visually rich layout."""
         try:
             from PIL import Image, ImageDraw, ImageFont
         except ImportError:
-            # Fallback: use FFmpeg to create a colored image
             self._ffmpeg_slide(slide, out_path, bg_style)
             return
 
@@ -152,44 +150,90 @@ class TextToShortsGenerator:
         img = Image.new("RGB", (W, H))
         draw = ImageDraw.Draw(img)
 
-        # Simple gradient (top to bottom)
+        # ── Gradient background (diagonal feel via two passes) ──────────
         for y in range(H):
-            r = int(colors[0][0] + (colors[1][0] - colors[0][0]) * y / H)
-            g = int(colors[0][1] + (colors[1][1] - colors[0][1]) * y / H)
-            b = int(colors[0][2] + (colors[1][2] - colors[0][2]) * y / H)
+            t = y / H
+            r = int(colors[0][0] + (colors[1][0] - colors[0][0]) * t)
+            g = int(colors[0][1] + (colors[1][1] - colors[0][1]) * t)
+            b = int(colors[0][2] + (colors[1][2] - colors[0][2]) * t)
             draw.line([(0, y), (W, y)], fill=(r, g, b))
 
-        # Accent line
+        # ── Accent color ─────────────────────────────────────────────────
         try:
             ar, ag, ab = int(accent[1:3], 16), int(accent[3:5], 16), int(accent[5:7], 16)
         except Exception:
             ar, ag, ab = 255, 107, 107
-        draw.rectangle([80, 800, 1000, 806], fill=(ar, ag, ab))
+        ac = (ar, ag, ab)
 
-        # Text
-        try:
-            font_h = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 72)
-            font_b = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 48)
-        except Exception:
-            font_h = ImageFont.load_default()
-            font_b = font_h
+        # ── Decorative circles (background detail) ───────────────────────
+        draw.ellipse([750, -100, 1180, 330], fill=(ar, ag, ab, 30) if hasattr(draw, '_image') else tuple([min(c+30, 255) for c in colors[1]]))
+        draw.ellipse([-100, 1600, 400, 2100], fill=tuple([max(c-10, 0) for c in colors[0]]))
 
+        # ── Top decorative bar ────────────────────────────────────────────
+        draw.rectangle([0, 0, W, 12], fill=ac)
+
+        # ── Fonts ────────────────────────────────────────────────────────
+        font_paths = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+            "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+        ]
+        font_body_paths = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+        ]
+
+        def load_font(paths, size):
+            for p in paths:
+                try:
+                    return ImageFont.truetype(p, size)
+                except Exception:
+                    continue
+            return ImageFont.load_default()
+
+        stype = slide.get("type", "content")
         heading = slide.get("heading", "")
         body = slide.get("body", "")
 
-        # Wrap and draw heading
-        self._draw_text_wrapped(draw, heading, font_h, W, 820, (255, 255, 255), max_width=W - 120)
-        if body:
-            self._draw_text_wrapped(draw, body, font_b, W, 960, (220, 220, 220), max_width=W - 120)
+        font_badge = load_font(font_paths, 40)
+        font_h     = load_font(font_paths, 80 if stype == "hook" else 68)
+        font_b     = load_font(font_body_paths, 50)
+        font_num   = load_font(font_paths, 200)
 
-        # Slide type badge
-        stype = slide.get("type", "")
-        if stype == "hook":
-            draw.rectangle([80, 200, 260, 250], fill=(ar, ag, ab))
-            draw.text((90, 208), "▶ HOOK", fill=(255, 255, 255), font=font_b)
-        elif stype == "cta":
-            draw.rectangle([80, 200, 320, 250], fill=(ar, ag, ab))
-            draw.text((90, 208), "⭐ FOLLOW", fill=(255, 255, 255), font=font_b)
+        # ── Badge (slide type) ────────────────────────────────────────────
+        badge_labels = {"hook": "▶ HOOK", "cta": "★ FOLLOW", "content": "●"}
+        badge_text = badge_labels.get(stype, "●")
+        bx1, by1, bx2, by2 = 60, 60, 60 + len(badge_text) * 22 + 40, 120
+        draw.rounded_rectangle([bx1, by1, bx2, by2], radius=30, fill=ac)
+        draw.text((bx1 + 20, by1 + 10), badge_text, fill=(255, 255, 255), font=font_badge)
+
+        # ── Large decorative number for content slides ────────────────────
+        if stype == "content" and body:
+            draw.text((W - 220, H // 2 - 160), "»", fill=(*ac, 60) if False else ac, font=font_num)
+
+        # ── Accent horizontal bar ─────────────────────────────────────────
+        bar_y = H // 2 - 20
+        draw.rectangle([60, bar_y, W - 60, bar_y + 8], fill=ac)
+
+        # ── Heading text ─────────────────────────────────────────────────
+        self._draw_text_wrapped(draw, heading, font_h, W, bar_y + 40, (255, 255, 255), max_width=W - 120)
+
+        # ── Body text ────────────────────────────────────────────────────
+        if body:
+            body_y = bar_y + 180 if stype != "hook" else bar_y + 220
+            self._draw_text_wrapped(draw, body, font_b, W, body_y, (210, 215, 230), max_width=W - 140)
+
+        # ── CTA slide extra: subscribe prompt ────────────────────────────
+        if stype == "cta":
+            draw.rounded_rectangle([160, H - 320, W - 160, H - 220], radius=50, fill=ac)
+            cta_font = load_font(font_paths, 52)
+            draw.text((W // 2, H - 283), "SUBSCRIBE SEKARANG !", fill=(255, 255, 255), font=cta_font, anchor="mm")
+
+        # ── Bottom brand strip ────────────────────────────────────────────
+        draw.rectangle([0, H - 80, W, H], fill=tuple([max(c - 20, 0) for c in colors[0]]))
+        brand_font = load_font(font_body_paths, 34)
+        draw.text((W // 2, H - 44), "Shorts Factory  ✦  AI Generated", fill=(180, 180, 180), font=brand_font, anchor="mm")
 
         img.save(out_path, "PNG")
 
@@ -242,18 +286,40 @@ class TextToShortsGenerator:
         ], capture_output=True)
 
     def _generate_tts(self, text: str, out_path: str):
-        """Generate TTS audio using gTTS."""
+        """Generate TTS audio using edge-tts (Microsoft, natural voice).
+        Falls back to gTTS then silent audio if both fail."""
+        # edge-tts produces .mp3 natively; out_path already .mp3
+        try:
+            import asyncio
+            import edge_tts
+
+            async def _run_edge():
+                communicate = edge_tts.Communicate(text, voice="id-ID-GadisNeural")
+                await communicate.save(out_path)
+
+            asyncio.run(_run_edge())
+            if os.path.exists(out_path) and os.path.getsize(out_path) > 100:
+                return
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("edge-tts failed (%s), falling back to gTTS", e)
+
+        # Fallback 1: gTTS
         try:
             from gtts import gTTS
             tts = gTTS(text=text, lang="id", slow=False)
             tts.save(out_path)
+            if os.path.exists(out_path) and os.path.getsize(out_path) > 100:
+                return
         except Exception:
-            # Silent fallback: create 3s silent audio
-            subprocess.run([
-                "ffmpeg", "-y", "-f", "lavfi",
-                "-i", "anullsrc=r=44100:cl=stereo",
-                "-t", "3", out_path,
-            ], capture_output=True)
+            pass
+
+        # Fallback 2: silent audio
+        subprocess.run([
+            "ffmpeg", "-y", "-f", "lavfi",
+            "-i", "anullsrc=r=44100:cl=stereo",
+            "-t", "3", out_path,
+        ], capture_output=True)
 
     def _build_video(self, slide_paths: list, audio_paths: list, out_path: str):
         """Combine slides + audio into final video."""

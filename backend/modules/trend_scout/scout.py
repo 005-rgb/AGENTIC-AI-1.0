@@ -50,9 +50,8 @@ class TrendScout:
             limit=limit,
         )
 
-        genai = get_genai_client(tenant_id)
-        model = genai.GenerativeModel("gemini-2.0-flash")
-        response = model.generate_content(prompt)
+        from backend.core.gemini_pool import generate_with_retry
+        response = generate_with_retry(tenant_id, "gemini-2.0-flash", prompt)
         raw = response.text.strip()
 
         data = self._parse(raw)

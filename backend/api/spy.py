@@ -46,6 +46,7 @@ def _run_spy(analysis_id: str, channel_url: str, tenant_id: str, db: Session):
             genai_client = None  # No keys configured — spy will use basic analysis
 
         spy = CompetitorSpy(genai_client)
+        spy.tenant_id = tenant_id
         result = spy.analyze(channel_url)
         analysis.channel_name = result.get("channel_name", "")
         analysis.result = result

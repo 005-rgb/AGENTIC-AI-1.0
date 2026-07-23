@@ -11,14 +11,14 @@ from backend.core.gemini_pool import get_genai_client
 NICHE_CONFIG = {
     "motivasi":   {"model": "gemini-2.0-flash", "tone": "inspiratif dan membakar semangat", "points": 3},
     "edukasi":    {"model": "gemini-2.0-flash", "tone": "informatif dan mudah dipahami",    "points": 4},
-    "humor":      {"model": "gemini-1.5-flash", "tone": "santai, lucu, dan menghibur",      "points": 3},
+    "humor":      {"model": "gemini-2.0-flash", "tone": "santai, lucu, dan menghibur",      "points": 3},
     "fakta":      {"model": "gemini-2.0-flash", "tone": "mengejutkan dan penasaran",        "points": 4},
     "tutorial":   {"model": "gemini-2.0-flash", "tone": "jelas step-by-step",              "points": 5},
-    "lifestyle":  {"model": "gemini-1.5-flash", "tone": "casual dan relatable",            "points": 3},
+    "lifestyle":  {"model": "gemini-2.0-flash", "tone": "casual dan relatable",            "points": 3},
     "finance":    {"model": "gemini-2.0-flash", "tone": "serius tapi simpel",              "points": 3},
     "kesehatan":  {"model": "gemini-2.0-flash", "tone": "informatif dan peduli",           "points": 4},
     "teknologi":  {"model": "gemini-2.0-flash", "tone": "exciting dan futuristik",         "points": 3},
-    "lainnya":    {"model": "gemini-1.5-flash", "tone": "menarik dan engaging",            "points": 3},
+    "lainnya":    {"model": "gemini-2.0-flash", "tone": "menarik dan engaging",            "points": 3},
 }
 
 PROMPT_TEMPLATE = """
@@ -69,9 +69,8 @@ class ScriptGenerator:
             points=cfg["points"],
         )
 
-        genai = get_genai_client(tenant_id)
-        model = genai.GenerativeModel(cfg["model"])
-        response = model.generate_content(prompt)
+        from backend.core.gemini_pool import generate_with_retry
+        response = generate_with_retry(tenant_id, cfg["model"], prompt)
         raw = response.text.strip()
 
         return self._parse(raw, topic, niche)
