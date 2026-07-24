@@ -48,6 +48,34 @@ def encrypt_credentials(data: dict) -> str:
     return f.encrypt(raw.encode()).decode()
 
 
+def _hmac_sign(payload: str, secret: str) -> str:
+    """HMAC-SHA256 signature untuk OAuth state / webhook verification."""
+    import hmac as _hmac
+    import hashlib
+    return _hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
+
+
+def make_signed_state(data: str, secret: str) -> str:
+    """Buat state string bertanda tangan: '{data}:{signature}'."""
+    sig = _hmac_sign(data, secret)
+    return f"{data}:{sig}"
+
+
+def verify_signed_state(state: str, secret: str) -> str:
+    """Verifikasi dan kembalikan data asli, atau raise ValueError jika invalid."""
+    import hmac as _hmac
+    if ":" not in state:
+        raise ValueError("State tidak valid: format salah")
+    # Ambil signature dari bagian terakhir (data bisa mengandung ':')
+    last_colon = state.rfind(":")
+    data = state[:last_colon]
+    provided_sig = state[last_colon + 1:]
+    expected_sig = _hmac_sign(data, secret)
+    if not _hmac.compare_digest(provided_sig, expected_sig):
+        raise ValueError("State tidak valid: signature tidak cocok")
+    return data
+
+
 def decrypt_credentials(stored: Any) -> dict:
     """Decrypt stored string kembali ke dict."""
     if stored is None:

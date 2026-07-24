@@ -8,6 +8,7 @@ import uuid
 from backend.core.database import get_db
 from backend.core.deps import get_current_tenant
 from backend.core.ai_pool import load_from_db, PROVIDER_ORDER
+from backend.core.plan_limits import check_gemini_key_limit
 from backend.models.models import GeminiKey, Tenant
 
 router = APIRouter()
@@ -94,6 +95,7 @@ def list_keys(tenant: Tenant = Depends(get_current_tenant), db: Session = Depend
 def add_key(data: KeyCreate, tenant: Tenant = Depends(get_current_tenant), db: Session = Depends(get_db)):
     if data.provider not in VALID_PROVIDERS:
         raise HTTPException(400, f"Provider tidak valid. Pilihan: {', '.join(VALID_PROVIDERS)}")
+    check_gemini_key_limit(tenant, db)
     existing = db.query(GeminiKey).filter(
         GeminiKey.tenant_id == tenant.id,
         GeminiKey.api_key == data.api_key,
@@ -122,6 +124,23 @@ def add_keys_bulk(data: KeyBulkCreate, tenant: Tenant = Depends(get_current_tena
     existing_keys = {
         k.api_key for k in db.query(GeminiKey).filter(GeminiKey.tenant_id == tenant.id).all()
     }
+
+    # Hitung berapa key baru yang unik dan akan ditambahkan
+    from backend.core.plan_limits import get_limits
+    limits = get_limits(tenant)
+    current_count = len(existing_keys)
+    new_unique = [
+        item for item in data.keys
+        if item.api_key.strip() and item.api_key.strip() not in existing_keys
+    ]
+    if limits.max_gemini_keys < 9999 and current_count + len(new_unique) > limits.max_gemini_keys:
+        slots_left = max(0, limits.max_gemini_keys - current_count)
+        raise HTTPException(
+            429,
+            f"Batas key plan {tenant.plan}: {limits.max_gemini_keys}. "
+            f"Saat ini {current_count} key, tersisa {slots_left} slot. "
+            "Kurangi jumlah key yang diimpor atau upgrade plan."
+        )
 
     for item in data.keys:
         raw = item.api_key.strip()

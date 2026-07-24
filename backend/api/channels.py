@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from backend.core.database import get_db
 from backend.core.deps import get_current_tenant
 from backend.core.config import settings
-from backend.core.encryption import encrypt_credentials, decrypt_credentials
+from backend.core.encryption import encrypt_credentials, decrypt_credentials, make_signed_state, verify_signed_state
 from backend.core.plan_limits import check_channel_limit
 from backend.models.models import Channel, Tenant
 
@@ -134,7 +134,7 @@ def get_youtube_oauth_url(
         f"&scope={scopes}"
         f"&access_type=offline"
         f"&prompt=consent"
-        f"&state={channel_id}"
+        f"&state={make_signed_state(f'{channel_id}:{tenant.id}', settings.SECRET_KEY)}"
     )
     return {"auth_url": url}
 
@@ -151,8 +151,20 @@ def youtube_oauth_callback(
         raise HTTPException(404, "Channel tidak ditemukan")
 
     code = body.get("code")
+    state = body.get("state", "")
     if not code:
         raise HTTPException(400, "Parameter 'code' diperlukan")
+    if not state:
+        raise HTTPException(400, "Parameter 'state' wajib ada untuk keamanan CSRF")
+
+    # Verifikasi state CSRF — exact match {channel_id}:{tenant_id}
+    try:
+        data_str = verify_signed_state(state, settings.SECRET_KEY)
+        parts = data_str.split(":")
+        if len(parts) != 2 or parts[0] != channel_id or parts[1] != tenant.id:
+            raise ValueError("State tidak cocok dengan channel/tenant")
+    except ValueError as e:
+        raise HTTPException(400, f"State OAuth tidak valid: {e}")
 
     try:
         from backend.modules.youtube_uploader.uploader import exchange_code_for_token
@@ -160,6 +172,8 @@ def youtube_oauth_callback(
         ch.youtube_credentials = encrypt_credentials(credentials)
         db.commit()
         return {"success": True, "message": "YouTube terhubung"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(400, f"Gagal tukar kode OAuth: {str(e)}")
 
@@ -194,9 +208,10 @@ def get_tiktok_oauth_url(
 
     try:
         from backend.modules.tiktok.uploader import get_tiktok_oauth_url
+        signed = make_signed_state(f"{channel_id}:{tenant.id}", settings.SECRET_KEY)
         url = get_tiktok_oauth_url(
             redirect_uri=settings.TIKTOK_REDIRECT_URI,
-            state=channel_id,
+            state=signed,
         )
         return {"auth_url": url}
     except ValueError as e:
@@ -215,8 +230,20 @@ def tiktok_oauth_callback(
         raise HTTPException(404, "Channel tidak ditemukan")
 
     code = body.get("code")
+    state = body.get("state", "")
     if not code:
         raise HTTPException(400, "Parameter 'code' diperlukan")
+    if not state:
+        raise HTTPException(400, "Parameter 'state' wajib ada untuk keamanan CSRF")
+
+    # Verifikasi state CSRF — exact match {channel_id}:{tenant_id}
+    try:
+        data_str = verify_signed_state(state, settings.SECRET_KEY)
+        parts = data_str.split(":")
+        if len(parts) != 2 or parts[0] != channel_id or parts[1] != tenant.id:
+            raise ValueError("State tidak cocok dengan channel/tenant")
+    except ValueError as e:
+        raise HTTPException(400, f"State OAuth tidak valid: {e}")
 
     try:
         from backend.modules.tiktok.uploader import exchange_tiktok_code
@@ -269,8 +296,9 @@ def get_meta_oauth_url_endpoint(
 
     try:
         from backend.modules.meta.uploader import get_meta_oauth_url
-        state = f"{channel_id}:{platform}"
-        url = get_meta_oauth_url(settings.META_REDIRECT_URI, state=state, platform=platform)
+        raw_state = f"{channel_id}:{tenant.id}:{platform}"
+        signed = make_signed_state(raw_state, settings.SECRET_KEY)
+        url = get_meta_oauth_url(settings.META_REDIRECT_URI, state=signed, platform=platform)
         return {"auth_url": url, "platform": platform}
     except ValueError as e:
         raise HTTPException(400, str(e))
@@ -288,9 +316,23 @@ def meta_oauth_callback(
         raise HTTPException(404, "Channel tidak ditemukan")
 
     code = body.get("code")
-    platform = body.get("platform", "instagram")
+    state = body.get("state", "")
     if not code:
         raise HTTPException(400, "Parameter 'code' diperlukan")
+    if not state:
+        raise HTTPException(400, "Parameter 'state' wajib ada untuk keamanan CSRF")
+
+    # Verifikasi state CSRF — exact match {channel_id}:{tenant_id}:{platform}
+    try:
+        data_str = verify_signed_state(state, settings.SECRET_KEY)
+        parts = data_str.split(":")
+        if len(parts) != 3 or parts[0] != channel_id or parts[1] != tenant.id:
+            raise ValueError("State tidak cocok dengan channel/tenant/platform")
+        platform = parts[2]   # Platform diambil dari state (canonical)
+        if platform not in ("instagram", "facebook"):
+            raise ValueError(f"Platform tidak valid: {platform}")
+    except ValueError as e:
+        raise HTTPException(400, f"State OAuth tidak valid: {e}")
 
     try:
         from backend.modules.meta.uploader import (

@@ -39,14 +39,16 @@ def _migrate_db():
 
     NEW_COLUMNS = {
         "tenants": [
-            ("is_reseller",        "BOOLEAN DEFAULT 0"),
-            ("parent_tenant_id",   "VARCHAR"),
-            ("brand_name",         "VARCHAR"),
-            ("brand_logo_url",     "VARCHAR"),
-            ("brand_color",        "VARCHAR"),
-            ("telegram_chat_id",   "VARCHAR"),
-            ("whatsapp_number",    "VARCHAR"),
-            ("bot_active",         "BOOLEAN DEFAULT 0"),
+            ("is_reseller",              "BOOLEAN DEFAULT 0"),
+            ("parent_tenant_id",         "VARCHAR"),
+            ("brand_name",               "VARCHAR"),
+            ("brand_logo_url",           "VARCHAR"),
+            ("brand_color",              "VARCHAR"),
+            ("telegram_chat_id",         "VARCHAR"),
+            ("whatsapp_number",          "VARCHAR"),
+            ("bot_active",               "BOOLEAN DEFAULT 0"),
+            ("telegram_bot_credentials", "TEXT"),
+            ("whatsapp_credentials",     "TEXT"),
         ],
         "gemini_keys": [
             ("label",              "VARCHAR DEFAULT ''"),

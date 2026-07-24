@@ -104,8 +104,84 @@ def check_scheduled_uploads():
         db.close()
 
 
+def _refresh_tiktok_if_needed(channel, db) -> dict:
+    """Refresh TikTok access token jika akan/sudah expired. Return creds terbaru."""
+    from backend.core.encryption import decrypt_credentials, encrypt_credentials
+    import time
+
+    creds = decrypt_credentials(channel.tiktok_credentials)
+    expires_at = creds.get("expires_at", 0)
+    refresh_token = creds.get("refresh_token", "")
+
+    # Refresh jika token akan expired dalam 5 menit
+    if refresh_token and time.time() > (expires_at - 300):
+        try:
+            from backend.modules.tiktok.uploader import refresh_tiktok_token
+            data = refresh_tiktok_token(refresh_token)
+            new_access = data.get("access_token", creds.get("access_token", ""))
+            new_creds = {
+                "access_token": new_access,
+                "refresh_token": data.get("refresh_token", refresh_token),
+                "open_id": creds.get("open_id"),
+                "expires_at": time.time() + data.get("expires_in", 86400),
+            }
+            channel.tiktok_credentials = encrypt_credentials(new_creds)
+            db.commit()
+            log.info(f"TikTok token refreshed for channel={channel.id}")
+            return new_creds
+        except Exception as e:
+            log.warning(f"TikTok token refresh gagal: {e} — pakai token lama")
+    return creds
+
+
+def _refresh_meta_if_needed(channel, db) -> dict:
+    """
+    Tukar short-lived Meta token ke long-lived token jika belum (>= 60 hari).
+    Meta tidak punya refresh_token standar; gunakan long-lived exchange sekali.
+    """
+    from backend.core.encryption import decrypt_credentials, encrypt_credentials
+    import time
+
+    creds = decrypt_credentials(channel.meta_credentials)
+    expires_at = creds.get("expires_at", 0)
+    access_token = creds.get("access_token", "")
+
+    # Coba extend jika akan expired dalam 7 hari
+    if access_token and expires_at and time.time() > (expires_at - 7 * 24 * 3600):
+        try:
+            import os, requests as req
+            app_id = os.getenv("META_APP_ID", "")
+            app_secret = os.getenv("META_APP_SECRET", "")
+            if not app_id or not app_secret:
+                return creds
+            resp = req.get(
+                "https://graph.facebook.com/oauth/access_token",
+                params={
+                    "grant_type": "fb_exchange_token",
+                    "client_id": app_id,
+                    "client_secret": app_secret,
+                    "fb_exchange_token": creds.get("user_access_token", access_token),
+                },
+                timeout=15,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            new_token = data.get("access_token", access_token)
+            new_expiry = time.time() + data.get("expires_in", 60 * 24 * 3600)
+            # Update keduanya: user_access_token (long-lived) dan access_token (dipakai upload)
+            creds["user_access_token"] = new_token
+            creds["access_token"] = new_token
+            creds["expires_at"] = new_expiry
+            channel.meta_credentials = encrypt_credentials(creds)
+            db.commit()
+            log.info(f"Meta token extended for channel={channel.id}")
+        except Exception as e:
+            log.warning(f"Meta token refresh gagal: {e} — pakai token lama")
+    return creds
+
+
 def _upload_job_all_platforms(job, channel, db):
-    """Upload job ke semua platform yang diminta."""
+    """Upload job ke semua platform yang diminta, dengan token refresh otomatis."""
     from backend.modules.youtube_uploader.uploader import upload_video
     from backend.modules.multi_platform.exporter import MultiPlatformExporter
     from backend.core.encryption import decrypt_credentials
@@ -131,10 +207,10 @@ def _upload_job_all_platforms(job, channel, db):
         except Exception as e:
             log.error(f"YouTube upload failed: {e}")
 
-    # TikTok
+    # TikTok — refresh token sebelum upload
     if "tiktok" in platforms and channel.tiktok_credentials:
         try:
-            creds = decrypt_credentials(channel.tiktok_credentials)
+            creds = _refresh_tiktok_if_needed(channel, db)
             tiktok_path = exported.get("tiktok") or video_path
             video_id = exporter.upload_tiktok(
                 tiktok_path, job.title or "", job.description or "",
@@ -146,15 +222,19 @@ def _upload_job_all_platforms(job, channel, db):
         except Exception as e:
             log.error(f"TikTok upload failed: {e}")
 
+    # Meta — refresh/extend token sebelum upload
+    meta_creds = None
+    if channel.meta_credentials and ("instagram" in platforms or "facebook" in platforms):
+        meta_creds = _refresh_meta_if_needed(channel, db)
+
     # Instagram
-    if "instagram" in platforms and channel.meta_ig_user_id and channel.meta_credentials:
+    if "instagram" in platforms and channel.meta_ig_user_id and meta_creds:
         try:
-            creds = decrypt_credentials(channel.meta_credentials)
             ig_path = exported.get("instagram") or video_path
             media_id = exporter.upload_instagram_reels(
                 ig_path,
                 caption=job.description or job.title or "",
-                access_token=creds.get("access_token", ""),
+                access_token=meta_creds.get("access_token", ""),
                 ig_user_id=channel.meta_ig_user_id,
             )
             if media_id:
@@ -164,15 +244,14 @@ def _upload_job_all_platforms(job, channel, db):
             log.error(f"Instagram upload failed: {e}")
 
     # Facebook
-    if "facebook" in platforms and channel.meta_page_id and channel.meta_credentials:
+    if "facebook" in platforms and channel.meta_page_id and meta_creds:
         try:
-            creds = decrypt_credentials(channel.meta_credentials)
             fb_path = exported.get("facebook") or video_path
             video_id = exporter.upload_facebook_reels(
                 fb_path,
                 description=job.description or "",
                 title=job.title or "",
-                access_token=creds.get("access_token", ""),
+                access_token=meta_creds.get("access_token", ""),
                 page_id=channel.meta_page_id,
             )
             if video_id:

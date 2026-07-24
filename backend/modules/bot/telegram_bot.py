@@ -1,10 +1,13 @@
 """
 Telegram bot handler — FSM-based command processing.
 Integrates with tenant account via chat_id matching.
+Mengirim balasan nyata via Telegram Bot API.
 """
 import logging
+import httpx
 from sqlalchemy.orm import Session
 from backend.models.models import Tenant, BotSession, VideoJob
+from backend.core.encryption import decrypt_credentials
 import uuid
 
 logger = logging.getLogger(__name__)
@@ -20,9 +23,14 @@ BOT_COMMANDS = """
 
 
 def _find_tenant_by_chat_id(chat_id: str, db: Session):
-    return db.query(Tenant).filter(
-        Tenant.telegram_chat_id == chat_id
-    ).first()
+    return db.query(Tenant).filter(Tenant.telegram_chat_id == chat_id).first()
+
+
+def _get_bot_token(tenant: Tenant) -> str | None:
+    if not tenant.telegram_bot_credentials:
+        return None
+    creds = decrypt_credentials(tenant.telegram_bot_credentials)
+    return creds.get("bot_token")
 
 
 def _get_or_create_session(tenant_id: str, chat_id: str, db: Session) -> BotSession:
@@ -46,27 +54,42 @@ def _get_or_create_session(tenant_id: str, chat_id: str, db: Session) -> BotSess
     return session
 
 
+def _send_telegram_message(bot_token: str, chat_id: str, text: str) -> bool:
+    """Kirim pesan ke Telegram via Bot API. Return True jika berhasil."""
+    try:
+        resp = httpx.post(
+            f"https://api.telegram.org/bot{bot_token}/sendMessage",
+            json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
+            timeout=10,
+        )
+        data = resp.json()
+        if not data.get("ok"):
+            logger.warning(f"Telegram sendMessage gagal: {data.get('description')}")
+            return False
+        return True
+    except Exception as e:
+        logger.error(f"Telegram sendMessage error: {e}")
+        return False
+
+
 def _format_status(tenant: Tenant, db: Session) -> str:
     total_jobs = db.query(VideoJob).filter(VideoJob.tenant_id == tenant.id).count()
     done_jobs = db.query(VideoJob).filter(
-        VideoJob.tenant_id == tenant.id,
-        VideoJob.status == "done"
+        VideoJob.tenant_id == tenant.id, VideoJob.status == "done"
     ).count()
     from backend.models.models import GeminiKey, Channel
     total_keys = db.query(GeminiKey).filter(
-        GeminiKey.tenant_id == tenant.id,
-        GeminiKey.is_active == True
+        GeminiKey.tenant_id == tenant.id, GeminiKey.is_active == True
     ).count()
     total_channels = db.query(Channel).filter(
-        Channel.tenant_id == tenant.id,
-        Channel.is_active == True
+        Channel.tenant_id == tenant.id, Channel.is_active == True
     ).count()
 
     return (
         f"📊 *Status Akun: {tenant.name}*\n\n"
         f"📹 Total Job: {total_jobs}\n"
         f"✅ Job Selesai: {done_jobs}\n"
-        f"🔑 Gemini Key Aktif: {total_keys}\n"
+        f"🔑 AI Key Aktif: {total_keys}\n"
         f"📺 Channel Terhubung: {total_channels}\n"
         f"💎 Plan: {tenant.plan or 'free'}"
     )
@@ -94,7 +117,7 @@ def _format_recent_jobs(tenant_id: str, db: Session) -> str:
 
 
 def handle_telegram_update(payload: dict, db: Session):
-    """Process incoming Telegram update."""
+    """Process incoming Telegram update dan kirim balasan via API."""
     try:
         message = payload.get("message") or payload.get("edited_message")
         if not message:
@@ -111,7 +134,12 @@ def handle_telegram_update(payload: dict, db: Session):
             logger.info(f"Unknown chat_id: {chat_id}")
             return
 
-        session = _get_or_create_session(tenant.id, chat_id, db)
+        bot_token = _get_bot_token(tenant)
+        if not bot_token:
+            logger.warning(f"Bot token tidak tersimpan untuk tenant {tenant.id}")
+            return
+
+        _get_or_create_session(tenant.id, chat_id, db)
 
         # Handle commands
         if text.startswith("/start") or text.startswith("/help"):
@@ -119,20 +147,29 @@ def handle_telegram_update(payload: dict, db: Session):
                 f"👋 Halo *{tenant.name}*! Selamat datang di Shorts Factory Bot.\n\n"
                 f"Perintah yang tersedia:\n{BOT_COMMANDS}"
             )
-        elif text.startswith("/status"):
+        elif text.startswith("/status") or text.startswith("/stats"):
             reply = _format_status(tenant, db)
         elif text.startswith("/jobs"):
             reply = _format_recent_jobs(tenant.id, db)
-        elif text.startswith("/stats"):
-            reply = _format_status(tenant, db)
         elif text.startswith("/trends"):
             parts = text.split(" ", 1)
             niche = parts[1] if len(parts) > 1 else "motivasi"
             reply = f"🔍 Riset tren untuk niche *{niche}*...\n\nGunakan dashboard untuk analisis lengkap dengan AI."
         else:
-            reply = f"❓ Perintah tidak dikenal. Ketik /help untuk bantuan."
+            reply = "❓ Perintah tidak dikenal. Ketik /help untuk bantuan."
 
-        logger.info(f"Telegram reply for {chat_id}: {reply[:50]}...")
+        sent = _send_telegram_message(bot_token, chat_id, reply)
+        logger.info(f"Telegram reply sent={sent} for chat_id={chat_id}: {reply[:60]}...")
 
     except Exception as e:
         logger.error(f"Telegram handler error: {e}")
+
+
+def send_notification(tenant: Tenant, message: str) -> bool:
+    """Kirim notifikasi proaktif ke tenant via Telegram. Return True jika berhasil."""
+    if not tenant.telegram_chat_id or not tenant.bot_active:
+        return False
+    bot_token = _get_bot_token(tenant)
+    if not bot_token:
+        return False
+    return _send_telegram_message(bot_token, tenant.telegram_chat_id, message)

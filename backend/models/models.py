@@ -26,7 +26,9 @@ class Tenant(Base):
     brand_logo_url = Column(String, nullable=True)
     brand_color = Column(String, nullable=True)    # #hex
     telegram_chat_id = Column(String, nullable=True)
+    telegram_bot_credentials = Column(Text, nullable=True)   # encrypted JSON {bot_token}
     whatsapp_number = Column(String, nullable=True)
+    whatsapp_credentials = Column(Text, nullable=True)       # encrypted JSON {account_sid, auth_token, from_number}
     bot_active = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
